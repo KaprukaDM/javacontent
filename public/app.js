@@ -2,10 +2,9 @@ const $ = (s) => document.querySelector(s);
 const app = $('#app'), nav = $('#nav'), who = $('#who');
 const STATUSES = ['received', 'working', 'approval', 'rejected', 'completed'];
 let token = localStorage.getItem('jl_token');
-let me = null, meta = {}, view = 'calendar', month = null, pollTimer = null, staffList = [];
+let me = null, view = 'calendar', month = null, staffList = [];
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const isStaff = () => me && (me.role === 'admin' || me.role === 'staff');
 const chip = (s) => `<span class="chip s-${esc(s)}">${esc(s)}</span>`;
 const fmtDate = (d) => new Date(d + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
 
@@ -28,68 +27,64 @@ function openModal(html) { $('#sheet').innerHTML = html; $('#modal').hidden = fa
 function closeModal() { $('#modal').hidden = true; }
 $('#modal').addEventListener('mousedown', (e) => { if (e.target.id === 'modal') closeModal(); });
 
-// ---------- auth ----------
+// ---------- auth (backend staff only) ----------
 function signOut(silent) {
   if (!silent && token) api('/logout', 'POST').catch(() => {});
-  token = null; me = null; localStorage.removeItem('jl_token'); clearInterval(pollTimer);
-  renderAuth();
+  token = null; me = null; localStorage.removeItem('jl_token');
+  view = 'calendar'; renderChrome(); render();
 }
-function renderAuth(mode = 'login') {
-  nav.hidden = who.hidden = true;
-  const signup = mode === 'signup';
-  app.innerHTML = `<form class="card auth" id="authForm">
-    <h2>${signup ? 'Create account' : 'Sign in'}</h2>
-    ${signup ? '<label>Your name</label><input name="name" required>' : ''}
+function loginDialog() {
+  openModal(`<h3>Backend sign in</h3><form id="lf">
     <label>Username</label><input name="username" autocomplete="username" required>
-    <label>Password</label><input name="password" type="password" autocomplete="${signup ? 'new-password' : 'current-password'}" required>
-    <div class="err" id="authErr"></div>
-    <button class="btn" style="width:100%;margin-top:8px">${signup ? 'Sign up' : 'Sign in'}</button>
-    <p style="text-align:center">${signup ? 'Have an account?' : 'New here?'}
-      <button type="button" class="link" id="swap">${signup ? 'Sign in' : 'Create an account'}</button></p>
-  </form>`;
-  $('#swap').onclick = () => renderAuth(signup ? 'login' : 'signup');
-  $('#authForm').onsubmit = async (e) => {
+    <label>Password</label><input name="password" type="password" autocomplete="current-password" required>
+    <div class="err" id="le"></div>
+    <div class="row"><button type="button" class="btn alt" id="cx">Cancel</button><button class="btn">Sign in</button></div></form>`);
+  $('#cx').onclick = closeModal;
+  $('#lf').onsubmit = async (e) => {
     e.preventDefault();
     try {
-      const r = await api(signup ? '/signup' : '/login', 'POST', Object.fromEntries(new FormData(e.target)));
+      const r = await api('/login', 'POST', Object.fromEntries(new FormData(e.target)));
       token = r.token; localStorage.setItem('jl_token', token);
-      await boot();
-    } catch (err) { $('#authErr').textContent = err.message; }
+      closeModal(); await boot();
+    } catch (err) { $('#le').textContent = err.message; }
   };
 }
 
 async function boot() {
-  try {
-    const r = await api('/me');
-    me = r.user; meta = r;
-  } catch { return renderAuth(); }
-  if (isStaff()) staffList = (await api('/users')).users.filter((u) => u.role !== 'requester' && u.active);
-  const today = new Date();
-  month = month || meta.minDate.slice(0, 7);
-  view = isStaff() ? 'board' : 'calendar';
-  who.hidden = nav.hidden = false;
-  who.innerHTML = `${esc(me.name)} <span class="chip">${esc(me.role)}</span><button class="btn sm alt" id="out">Sign out</button>`;
-  $('#out').onclick = () => signOut();
-  renderNav();
+  me = null;
+  if (token) {
+    try {
+      me = (await api('/me')).user;
+      staffList = (await api('/users')).users.filter((u) => u.active);
+    } catch { me = null; }
+  }
+  view = me ? 'board' : 'calendar';
+  renderChrome();
   render();
-  clearInterval(pollTimer);
-  pollTimer = setInterval(() => { if ($('#modal').hidden && !document.hidden && !isTyping()) render(true); }, 10000);
 }
 const isTyping = () => ['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName);
 
-function renderNav() {
-  const tabs = [['calendar', 'Calendar'], [isStaff() ? 'board' : 'mine', isStaff() ? 'Work board' : 'My bookings']];
-  if (me.role === 'admin') tabs.push(['users', 'Users']);
+function renderChrome() {
+  const tabs = [['calendar', 'Calendar']];
+  if (me) tabs.push(['board', 'Work board']);
+  if (me?.role === 'admin') tabs.push(['users', 'Users']);
+  nav.hidden = who.hidden = false;
   nav.innerHTML = tabs.map(([k, l]) => `<button data-v="${k}" class="${view === k ? 'on' : ''}">${l}</button>`).join('');
-  nav.querySelectorAll('button').forEach((b) => (b.onclick = () => { view = b.dataset.v; renderNav(); render(); }));
+  nav.querySelectorAll('button').forEach((b) => (b.onclick = () => { view = b.dataset.v; renderChrome(); render(); }));
+  who.innerHTML = me
+    ? `${esc(me.name)} <span class="chip">${esc(me.role)}</span><button class="btn sm alt" id="out">Sign out</button>`
+    : '<button class="btn sm alt" id="in">Backend login</button>';
+  if (me) $('#out').onclick = () => signOut(); else $('#in').onclick = loginDialog;
 }
 function render(quiet) {
-  const fn = { calendar: renderCalendar, board: renderBoard, mine: renderBoard, users: renderUsers }[view];
+  const fn = { calendar: renderCalendar, board: renderBoard, users: renderUsers }[view];
   fn(quiet).catch((e) => { if (!quiet) toast(e.message); });
 }
+setInterval(() => { if ($('#modal').hidden && !document.hidden && !isTyping()) render(true); }, 10000);
 
 // ---------- calendar ----------
 async function renderCalendar() {
+  month = month || new Date().toISOString().slice(0, 7);
   const data = await api('/calendar?month=' + month);
   const [y, m] = month.split('-').map(Number);
   const first = new Date(y, m - 1, 1), days = new Date(y, m, 0).getDate();
@@ -102,7 +97,7 @@ async function renderCalendar() {
     const past = date < data.min, out = date > data.max;
     const slots = [1, 2].map((n) => {
       const b = by[date + '|' + n];
-      if (b) return `<button class="slot s-${b.status} ${b.mine ? 'mine' : ''}" data-id="${b.id}" ${b.mine || isStaff() ? '' : 'disabled'} title="${esc(b.requested_by_name)} · ${b.status}">S${n} · ${esc(b.requested_by_name)}</button>`;
+      if (b) return `<button class="slot s-${b.status}" data-id="${b.id}" title="${esc(b.requested_by_name)} · ${b.status}">S${n} · ${esc(b.requested_by_name)}</button>`;
       return `<button class="slot s-free" data-date="${date}" data-n="${n}" ${past || out ? 'disabled' : ''}>S${n} · Free</button>`;
     }).join('');
     cells += `<div class="day ${past ? 'past' : ''} ${date === data.min ? 'today' : ''}"><span class="n">${d}</span>${out ? '' : slots}</div>`;
@@ -127,16 +122,20 @@ async function renderCalendar() {
 }
 
 function bookDialog(date, n) {
+  const saved = (() => { try { return localStorage.getItem('jl_name') || ''; } catch { return ''; } })();
   openModal(`<h3>Book ${fmtDate(date)} · Slot ${n}</h3>
-    <form id="bf"><label>What do you need posted?</label>
+    <form id="bf"><label>Your name</label><input name="requester_name" value="${esc(saved)}" maxlength="80" required>
+    <label>What do you need posted?</label>
     <textarea name="requirement" maxlength="4000" placeholder="Describe the post requirement…" required></textarea>
     <div class="err" id="be"></div>
     <div class="row"><button type="button" class="btn alt" id="cx">Cancel</button><button class="btn">Book slot</button></div></form>`);
   $('#cx').onclick = closeModal;
   $('#bf').onsubmit = async (e) => {
     e.preventDefault();
+    const fd = new FormData(e.target);
     try {
-      await api('/bookings', 'POST', { slot_date: date, slot_no: n, requirement: new FormData(e.target).get('requirement') });
+      await api('/bookings', 'POST', { slot_date: date, slot_no: n, requirement: fd.get('requirement'), requester_name: fd.get('requester_name') });
+      try { localStorage.setItem('jl_name', fd.get('requester_name')); } catch {}
       closeModal(); toast('Slot booked'); render();
     } catch (err) { $('#be').textContent = err.message; if (/taken/.test(err.message)) render(); }
   };
@@ -144,9 +143,9 @@ function bookDialog(date, n) {
 
 async function detailDialog(id) {
   const { booking: b, history } = await api('/bookings/' + id);
-  const canCancel = isStaff() || b.status === 'received';
+  const canCancel = !!me;
   openModal(`<h3>${fmtDate(b.slot_date)} · Slot ${b.slot_no}</h3>
-    <p>${chip(b.status)} &nbsp; by <b>${esc(b.requested_by_name)}</b> · assigned: <b>${esc(b.assigned_to_name || 'nobody yet')}</b></p>
+    <p>${chip(b.status)} &nbsp; for <b>${esc(b.requested_by_name)}</b> · assigned: <b>${esc(b.assigned_to_name || 'nobody yet')}</b></p>
     <div class="req-text">${esc(b.requirement)}</div>
     <b>History</b><ul class="hist">${history.map((h) => `<li>${chip(h.status)} ${esc(h.changed_by_name)} · ${esc(h.changed_at)} UTC${h.note ? '<br>' + esc(h.note) : ''}</li>`).join('')}</ul>
     <div class="row">${canCancel ? '<button class="btn danger" id="del">Cancel booking</button>' : ''}<button class="btn alt" id="cx">Close</button></div>`);
@@ -159,7 +158,7 @@ async function detailDialog(id) {
 
 // ---------- board / my bookings ----------
 async function renderBoard(quiet) {
-  const staff = isStaff();
+  const staff = true;
   const f = renderBoard.f || (renderBoard.f = { status: '', assigned: '' });
   const q = new URLSearchParams(staff ? f : {}).toString();
   const { bookings } = await api('/bookings' + (q ? '?' + q : ''));
@@ -172,12 +171,12 @@ async function renderBoard(quiet) {
     <td>${staff ? `<select data-id="${b.id}" data-f="assigned_to"><option value="">— unassigned —</option>${staffList.map((u) => `<option value="${u.id}" ${u.id === b.assigned_to ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select>` : esc(b.assigned_to_name || '—')}</td>
     <td><button class="btn sm alt" data-open="${b.id}">Details</button></td></tr>`).join('');
   app.innerHTML = `
-    <div class="bar"><h2 style="text-align:left">${staff ? 'Work board' : 'My bookings'}</h2><span class="spacer"></span>
+    <div class="bar"><h2 style="text-align:left">Work board</h2><span class="spacer"></span>
     ${staff ? `<select id="fs"><option value="">All statuses</option>${STATUSES.map((s) => `<option ${f.status === s ? 'selected' : ''}>${s}</option>`).join('')}</select>
       <select id="fa"><option value="">Anyone</option><option value="me" ${f.assigned === 'me' ? 'selected' : ''}>Assigned to me</option><option value="none" ${f.assigned === 'none' ? 'selected' : ''}>Unassigned</option></select>` : ''}
     </div>
     ${bookings.length ? `<div class="tablewrap"><table><thead><tr><th>Slot</th><th>Requested by</th><th>Requirement</th><th>Status</th><th>Assigned</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
-      : '<div class="card empty">No bookings yet. Pick a free slot on the calendar.</div>'}`;
+      : '<div class="card empty">No bookings match.</div>'}`;
   window.scrollTo(0, keepScroll);
   if (staff) {
     $('#fs').onchange = (e) => { f.status = e.target.value; render(); };
@@ -193,6 +192,7 @@ async function renderBoard(quiet) {
 
 // ---------- users (admin) ----------
 async function renderUsers() {
+  if (!me || me.role !== 'admin') return;
   const { users } = await api('/users');
   app.innerHTML = `
     <div class="bar"><h2 style="text-align:left">Users</h2></div>
@@ -202,7 +202,7 @@ async function renderUsers() {
         <div><label>Name</label><input name="name" required></div>
         <div><label>Username</label><input name="username" required></div>
         <div><label>Password</label><input name="password" type="text" minlength="6" required></div>
-        <div><label>Role</label><select name="role"><option value="staff">staff (backend)</option><option value="admin">admin</option><option value="requester">requester</option></select></div>
+        <div><label>Role</label><select name="role"><option value="staff">staff (backend)</option><option value="admin">admin</option></select></div>
       </div>
       <div class="err" id="ue"></div><button class="btn">Create user</button>
     </form>
@@ -225,4 +225,4 @@ async function renderUsers() {
   }));
 }
 
-token ? boot() : renderAuth();
+boot();

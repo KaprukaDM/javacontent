@@ -7,7 +7,7 @@ const { DatabaseSync } = require('node:sqlite');
 const PORT = process.env.PORT || 3000;
 const SLOTS = [1, 2];
 const STATUSES = ['received', 'working', 'approval', 'rejected', 'completed'];
-const ROLES = ['admin', 'staff', 'requester'];
+const ROLES = ['admin', 'staff'];
 const HORIZON_YEARS = 5;
 
 fs.mkdirSync(path.join(__dirname, 'data'), { recursive: true });
@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   username TEXT UNIQUE NOT NULL,
   name TEXT NOT NULL,
-  role TEXT NOT NULL CHECK (role IN ('admin','staff','requester')),
+  role TEXT NOT NULL CHECK (role IN ('admin','staff')),
   password_hash TEXT NOT NULL,
   active INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS bookings (
   slot_no INTEGER NOT NULL CHECK (slot_no IN (1,2)),
   requirement TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'received',
-  requested_by INTEGER NOT NULL REFERENCES users(id),
+  requester_name TEXT NOT NULL,
   assigned_to INTEGER REFERENCES users(id),
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS status_history (
   booking_id INTEGER NOT NULL REFERENCES bookings(id),
   status TEXT NOT NULL,
   note TEXT,
-  changed_by INTEGER NOT NULL REFERENCES users(id),
+  changed_by INTEGER REFERENCES users(id),
   changed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 `);
@@ -73,7 +73,6 @@ const maxDate = () => {
 };
 const validDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(s) && iso(new Date(s + 'T00:00:00Z')) === s;
 const publicUser = (u) => ({ id: u.id, username: u.username, name: u.name, role: u.role, active: !!u.active });
-const isStaff = (u) => u.role === 'admin' || u.role === 'staff';
 
 if (!db.prepare('SELECT 1 FROM users LIMIT 1').get()) {
   const pw = process.env.ADMIN_PASSWORD || 'admin123';
@@ -84,9 +83,8 @@ if (!db.prepare('SELECT 1 FROM users LIMIT 1').get()) {
 
 const BOOKING_SQL = `
 SELECT b.id, b.slot_date, b.slot_no, b.requirement, b.status, b.created_at, b.updated_at,
-       b.requested_by, r.name AS requested_by_name, b.assigned_to, a.name AS assigned_to_name
+       b.requester_name AS requested_by_name, b.assigned_to, a.name AS assigned_to_name
 FROM bookings b
-JOIN users r ON r.id = b.requested_by
 LEFT JOIN users a ON a.id = b.assigned_to`;
 
 // ---------- app ----------
@@ -129,15 +127,6 @@ app.post('/api/login', (req, res) => {
   res.json({ token: startSession(u.id), user: publicUser(u) });
 });
 
-app.post('/api/signup', (req, res) => {
-  const c = checkNewUser(req.body || {});
-  if (c.error) return res.status(c.status || 400).json({ error: c.error });
-  const r = db.prepare('INSERT INTO users (username,name,role,password_hash) VALUES (?,?,?,?)')
-    .run(c.un, String(req.body.name).trim(), 'requester', hash(req.body.password));
-  const u = db.prepare('SELECT * FROM users WHERE id = ?').get(r.lastInsertRowid);
-  res.json({ token: startSession(u.id), user: publicUser(u) });
-});
-
 app.post('/api/logout', auth(), (req, res) => {
   db.prepare('DELETE FROM sessions WHERE token = ?').run(req.token);
   res.json({ ok: true });
@@ -146,38 +135,43 @@ app.post('/api/logout', auth(), (req, res) => {
 app.get('/api/me', auth(), (req, res) =>
   res.json({ user: publicUser(req.user), statuses: STATUSES, minDate: today(), maxDate: maxDate() }));
 
-// Calendar: booked slots for a month (any signed-in user sees what's taken)
-app.get('/api/calendar', auth(), (req, res) => {
+// ---- Public (no login): calendar, booking, status lookup ----
+const hits = new Map();
+const rateLimit = (req, res, next) => {
+  const now = Date.now(), list = (hits.get(req.ip) || []).filter((t) => now - t < 3600e3);
+  if (list.length >= 20) return res.status(429).json({ error: 'Too many bookings from your network, try later' });
+  list.push(now); hits.set(req.ip, list); next();
+};
+
+app.get('/api/calendar', (req, res) => {
   const m = String(req.query.month || '');
   if (!/^\d{4}-\d{2}$/.test(m)) return res.status(400).json({ error: 'month=YYYY-MM required' });
   const rows = db.prepare(`${BOOKING_SQL} WHERE b.slot_date LIKE ? ORDER BY b.slot_date, b.slot_no`).all(m + '-%');
   res.json({
     min: today(),
     max: maxDate(),
-    bookings: rows.map((b) => ({
-      id: b.id, slot_date: b.slot_date, slot_no: b.slot_no, status: b.status,
-      mine: b.requested_by === req.user.id,
-      requested_by_name: b.requested_by_name,
-      requirement: isStaff(req.user) || b.requested_by === req.user.id ? b.requirement : undefined,
-    })),
+    statuses: STATUSES,
+    bookings: rows.map((b) => ({ id: b.id, slot_date: b.slot_date, slot_no: b.slot_no, status: b.status, requested_by_name: b.requested_by_name })),
   });
 });
 
-app.post('/api/bookings', auth(), (req, res) => {
-  const { slot_date, slot_no, requirement } = req.body || {};
+app.post('/api/bookings', rateLimit, (req, res) => {
+  const { slot_date, slot_no, requirement, requester_name } = req.body || {};
   const no = Number(slot_no);
+  const who = String(requester_name || '').trim();
   if (!validDate(slot_date)) return res.status(400).json({ error: 'Invalid date' });
   if (!SLOTS.includes(no)) return res.status(400).json({ error: 'Slot must be 1 or 2' });
   if (slot_date < today() || slot_date > maxDate())
     return res.status(400).json({ error: 'Date is outside the bookable range' });
+  if (who.length < 2 || who.length > 80) return res.status(400).json({ error: 'Please enter your name' });
   const text = String(requirement || '').trim();
   if (text.length < 3 || text.length > 4000)
     return res.status(400).json({ error: 'Describe the requirement (3-4000 chars)' });
   try {
-    const r = db.prepare('INSERT INTO bookings (slot_date,slot_no,requirement,requested_by) VALUES (?,?,?,?)')
-      .run(slot_date, no, text, req.user.id);
-    db.prepare('INSERT INTO status_history (booking_id,status,note,changed_by) VALUES (?,?,?,?)')
-      .run(r.lastInsertRowid, 'received', 'Booking created', req.user.id);
+    const r = db.prepare('INSERT INTO bookings (slot_date,slot_no,requirement,requester_name) VALUES (?,?,?,?)')
+      .run(slot_date, no, text, who);
+    db.prepare('INSERT INTO status_history (booking_id,status,note,changed_by) VALUES (?,?,?,NULL)')
+      .run(r.lastInsertRowid, 'received', 'Booking created');
     res.json({ id: Number(r.lastInsertRowid) });
   } catch (e) {
     if (String(e.message).includes('UNIQUE')) return res.status(409).json({ error: 'That slot was just taken' });
@@ -185,27 +179,22 @@ app.post('/api/bookings', auth(), (req, res) => {
   }
 });
 
-// Staff see all (filterable); requesters see their own
-app.get('/api/bookings', auth(), (req, res) => {
-  const where = [], args = [];
-  if (!isStaff(req.user)) {
-    where.push('b.requested_by = ?');
-    args.push(req.user.id);
-  } else {
-    if (STATUSES.includes(req.query.status)) { where.push('b.status = ?'); args.push(req.query.status); }
-    if (req.query.assigned === 'me') { where.push('b.assigned_to = ?'); args.push(req.user.id); }
-    else if (req.query.assigned === 'none') where.push('b.assigned_to IS NULL');
-  }
-  const sql = `${BOOKING_SQL} ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY b.slot_date, b.slot_no LIMIT 500`;
-  res.json({ bookings: db.prepare(sql).all(...args) });
+app.get('/api/bookings/:id', (req, res) => {
+  const b = db.prepare(`${BOOKING_SQL} WHERE b.id = ?`).get(req.params.id);
+  if (!b) return res.status(404).json({ error: 'Not found' });
+  const history = db.prepare(`SELECT h.status,h.note,h.changed_at,COALESCE(u.name,'Requester') AS changed_by_name
+    FROM status_history h LEFT JOIN users u ON u.id = h.changed_by WHERE h.booking_id = ? ORDER BY h.id`).all(b.id);
+  res.json({ booking: b, history });
 });
 
-app.get('/api/bookings/:id', auth(), (req, res) => {
-  const b = db.prepare(`${BOOKING_SQL} WHERE b.id = ?`).get(req.params.id);
-  if (!b || (!isStaff(req.user) && b.requested_by !== req.user.id)) return res.status(404).json({ error: 'Not found' });
-  const history = db.prepare(`SELECT h.status,h.note,h.changed_at,u.name AS changed_by_name
-    FROM status_history h JOIN users u ON u.id = h.changed_by WHERE h.booking_id = ? ORDER BY h.id`).all(b.id);
-  res.json({ booking: b, history });
+// ---- Backend (login required) ----
+app.get('/api/bookings', auth(['admin', 'staff']), (req, res) => {
+  const where = [], args = [];
+  if (STATUSES.includes(req.query.status)) { where.push('b.status = ?'); args.push(req.query.status); }
+  if (req.query.assigned === 'me') { where.push('b.assigned_to = ?'); args.push(req.user.id); }
+  else if (req.query.assigned === 'none') where.push('b.assigned_to IS NULL');
+  const sql = `${BOOKING_SQL} ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY b.slot_date, b.slot_no LIMIT 500`;
+  res.json({ bookings: db.prepare(sql).all(...args) });
 });
 
 // Staff: update status / assignee
@@ -233,25 +222,19 @@ app.patch('/api/bookings/:id', auth(['admin', 'staff']), (req, res) => {
   res.json({ ok: true });
 });
 
-// Requesters may cancel their own booking while it is still "received"
-app.delete('/api/bookings/:id', auth(), (req, res) => {
+// Staff can cancel a booking to free the slot
+app.delete('/api/bookings/:id', auth(['admin', 'staff']), (req, res) => {
   const b = db.prepare('SELECT * FROM bookings WHERE id = ?').get(req.params.id);
   if (!b) return res.status(404).json({ error: 'Not found' });
-  if (!isStaff(req.user) && (b.requested_by !== req.user.id || b.status !== 'received'))
-    return res.status(403).json({ error: 'Only your own bookings still in "received" can be cancelled' });
   db.prepare('DELETE FROM status_history WHERE booking_id = ?').run(b.id);
   db.prepare('DELETE FROM bookings WHERE id = ?').run(b.id);
   res.json({ ok: true });
 });
 
-// Users: admin manages; staff can list backend users for assignment
+// Users: admin manages; staff can list teammates for assignment
 app.get('/api/users', auth(['admin', 'staff']), (req, res) => {
   const rows = db.prepare('SELECT * FROM users ORDER BY role, name').all();
-  res.json({
-    users: req.user.role === 'admin'
-      ? rows.map(publicUser)
-      : rows.filter((u) => u.role !== 'requester' && u.active).map(publicUser),
-  });
+  res.json({ users: (req.user.role === 'admin' ? rows : rows.filter((u) => u.active)).map(publicUser) });
 });
 
 app.post('/api/users', auth(['admin']), (req, res) => {

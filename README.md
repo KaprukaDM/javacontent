@@ -16,8 +16,8 @@ Requires Node 22.13+ (uses the built-in `node:sqlite`). Set `PORT` and `ADMIN_PA
 On first start an admin is seeded: `admin` / `admin123` (or `ADMIN_PASSWORD`). Change it.
 
 ## Roles
-- **requester** – self sign-up; books slots, sees own bookings and live status; can cancel while "received".
-- **staff** (backend) – work board with every booking; set status, assign to a teammate.
+- **Public (no login)** – anyone can open the calendar, book a free slot with their name and requirement, and see live status.
+- **staff** (backend, login) – work board with every booking; set status, assign to a teammate.
 - **admin** – everything staff can do, plus create/disable users and reset passwords.
 
 Pages poll every 10s so status changes appear without a refresh.
