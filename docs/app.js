@@ -165,8 +165,12 @@ async function detailDialog(id) {
   $('#cx').onclick = closeModal;
   if (me) {
     const save = async (patch) => {
-      try { must(await sb.from('bookings').update(patch).eq('id', id)); toast('Updated'); closeModal(); render(); }
-      catch (e) { toast(e.message); }
+      try {
+        must(await sb.from('bookings').update(patch).eq('id', id));
+        toast('Updated');
+        render(true);          // refresh the calendar/board behind the popup
+        await detailDialog(id); // reload the popup in place (new status, assignee, history)
+      } catch (e) { toast(e.message); }
     };
     $('#d-status').onchange = (e) => save({ status: e.target.value });
     $('#d-assign').onchange = (e) => save({ assigned_to: e.target.value || null });
