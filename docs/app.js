@@ -145,8 +145,22 @@ function render(quiet) {
 setInterval(() => { if (me && $('#modal').hidden && !document.hidden && !isTyping()) render(true); }, 10000);
 
 // ---------- calendar ----------
+// First month that still has a free slot we are allowed to book (opens the calendar on the right month).
+async function firstOpenMonth() {
+  const start = isStaff() ? MIN_DATE : BOOK_FROM;
+  try {
+    const rows = must(await sb.from('calendar_slots').select('slot_date').gte('slot_date', start).order('slot_date').limit(1000));
+    const taken = {};
+    rows.forEach((r) => (taken[r.slot_date] = (taken[r.slot_date] || 0) + 1));
+    for (let d = start, i = 0; d <= MAX_DATE && i < 1100; d = addDays(d, 1), i++) {
+      if ((taken[d] || 0) < 2) return d.slice(0, 7);
+    }
+  } catch { /* fall back below */ }
+  return start.slice(0, 7);
+}
+
 async function renderCalendar() {
-  month = month || MIN_DATE.slice(0, 7);
+  month = month || (await firstOpenMonth());
   const [y, m] = month.split('-').map(Number);
   const first = new Date(y, m - 1, 1), days = new Date(y, m, 0).getDate();
   const rows = must(await sb.from('calendar_slots').select('id,slot_date,slot_no,status,branch,mine,requester_name')
