@@ -12,6 +12,9 @@ const BRANCHES = {
 };
 const branchOptions = (sel) => `<option value="">Select branch…</option>` + Object.entries(BRANCHES).map(([g, l]) =>
   `<optgroup label="${g}">${l.map((b) => `<option ${b === sel ? 'selected' : ''}>${esc(b)}</option>`).join('')}</optgroup>`).join('');
+const branchChecks = (locked) => Object.entries(BRANCHES).map(([g, l]) =>
+  `<div class="bgroup"><b>${g}</b><div class="bchecks">${l.map((b) => `<label class="chk"><input type="checkbox" name="branches" value="${esc(b)}" ${b === locked ? 'checked disabled' : ''}> ${esc(b)}</label>`).join('')}</div></div>`).join('');
+const branchList = (b) => (b.branches && b.branches.length ? b.branches : b.branch ? [b.branch] : []);
 let me = null, view = 'calendar', month = null, staffList = [];
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -169,7 +172,7 @@ async function renderCalendar() {
   month = month || (await firstOpenMonth());
   const [y, m] = month.split('-').map(Number);
   const first = new Date(y, m - 1, 1), days = new Date(y, m, 0).getDate();
-  const rows = must(await sb.from('calendar_slots').select('id,slot_date,slot_no,status,branch,mine,requester_name')
+  const rows = must(await sb.from('calendar_slots').select('id,slot_date,slot_no,status,branch,branches,mine,requester_name')
     .gte('slot_date', `${month}-01`).lte('slot_date', `${month}-${pad(days)}`));
   const by = {};
   rows.forEach((b) => (by[b.slot_date + '|' + b.slot_no] = b));
@@ -180,8 +183,9 @@ async function renderCalendar() {
     const past = date < MIN_DATE, out = date > MAX_DATE, blocked = !past && date < BOOK_FROM, closed = blocked && !isStaff();
     const slots = [1, 2].map((n) => {
       const b = by[date + '|' + n];
-      const label = b && (b.branch || b.requester_name || 'Booked');
-      if (b) return `<button class="slot booked ${b.mine ? 'mine' : ''}" ${b.mine ? `data-id="${b.id}"` : 'disabled'} title="${esc(label)} · ${b.status}"><span class="dot d-${b.status}"></span>S${n} · ${esc(label)}</button>`;
+      const bl = b ? branchList(b) : [];
+      const label = b && ((bl[0] || b.requester_name || 'Booked') + (bl.length > 1 ? ` +${bl.length - 1}` : ''));
+      if (b) return `<button class="slot booked ${b.mine ? 'mine' : ''}" ${b.mine ? `data-id="${b.id}"` : 'disabled'} title="${esc(bl.join(', ') || label)} · ${b.status}"><span class="dot d-${b.status}"></span>S${n} · ${esc(label)}</button>`;
       return `<button class="slot ${blocked ? 's-closed' : 's-free'}" data-date="${date}" data-n="${n}" ${past || out || closed ? 'disabled' : ''}>S${n} · ${blocked ? (closed ? 'Closed' : 'Staff only') : 'Free'}</button>`;
     }).join('');
     const occ = isStaff() ? occasionsFor(date) : [];
@@ -213,7 +217,8 @@ async function renderCalendar() {
 function bookDialog(date, n) {
   openModal(`<h3>Book ${fmtDate(date)} · Slot ${n}</h3>
     <form id="bf">
-    ${isBranch() ? `<p style="margin:0">Branch: <b>${esc(me.branch)}</b></p>` : `<label>Branch</label><select name="branch" required>${branchOptions('')}</select>`}
+    <label style="margin-top:0">${isBranch() ? `Branches (yours, <b>${esc(me.branch)}</b>, is included — tick any others)` : 'Branches (tick one or more)'}</label>
+    <div class="bpick">${branchChecks(isBranch() ? me.branch : '')}</div>
     <label>What do you need posted?</label>
     <textarea name="requirement" maxlength="4000" placeholder="Describe the post requirement…" required></textarea>
     <div class="err" id="be"></div>
@@ -222,9 +227,12 @@ function bookDialog(date, n) {
   $('#bf').onsubmit = async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
+    const picked = fd.getAll('branches');
+    const branches = isBranch() ? [me.branch, ...picked.filter((x) => x !== me.branch)] : picked;
+    if (!branches.length) return ($('#be').textContent = 'Tick at least one branch');
     const { error } = await sb.from('bookings').insert({
       slot_date: date, slot_no: n,
-      requester_name: isBranch() ? me.branch : me.name, branch: isBranch() ? me.branch : fd.get('branch'), requirement: String(fd.get('requirement')).trim() });
+      requester_name: isBranch() ? me.branch : me.name, branch: branches[0], branches, requirement: String(fd.get('requirement')).trim() });
     if (error) {
       $('#be').textContent = error.code === '23505' ? 'That slot was just taken' : 'Could not book this slot. Check the branch and requirement.';
       if (error.code === '23505') render();
@@ -238,7 +246,7 @@ async function detailDialog(id) {
   const b = must(await sb.from('bookings').select('*').eq('id', id).single());
   const history = must(await sb.from('status_history').select('*').eq('booking_id', id).order('id'));
   openModal(`<h3>${fmtDate(b.slot_date)} · Slot ${b.slot_no}</h3>
-    <p>${chip(b.status)} &nbsp; for <b>${esc(b.branch && b.requester_name === b.branch ? b.branch : b.requester_name)}</b>${b.branch && b.requester_name !== b.branch ? ` · ${esc(b.branch)}` : ''} · assigned: <b>${esc(b.assigned_name || 'nobody yet')}</b></p>
+    <p>${chip(b.status)} &nbsp; for <b>${esc(branchList(b).join(', ') || b.requester_name)}</b>${b.requester_name && !branchList(b).includes(b.requester_name) ? ` · booked by ${esc(b.requester_name)}` : ''} · assigned: <b>${esc(b.assigned_name || 'nobody yet')}</b></p>
     <div class="req-text">${esc(b.requirement)}</div>
     ${isStaff() ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
       <div><label>Status</label><select id="d-status">${STATUSES.map((s) => `<option ${s === b.status ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
@@ -276,7 +284,7 @@ async function renderBoard() {
   const keepScroll = window.scrollY;
   const rows = bookings.map((b) => `<tr>
     <td><b>${fmtDate(b.slot_date)}</b><br>Slot ${b.slot_no}</td>
-    <td>${esc(b.requester_name)}${b.branch && b.branch !== b.requester_name ? `<br><small>${esc(b.branch)}</small>` : ''}</td>
+    <td>${branchList(b).length ? esc(branchList(b).join(', ')) : esc(b.requester_name)}${b.requester_name && !branchList(b).includes(b.requester_name) ? `<br><small>by ${esc(b.requester_name)}</small>` : ''}</td>
     <td class="req">${esc(b.requirement)}</td>
     <td><select data-id="${b.id}" data-f="status">${STATUSES.map((s) => `<option ${s === b.status ? 'selected' : ''}>${s}</option>`).join('')}</select></td>
     <td><select data-id="${b.id}" data-f="assigned_to"><option value="">— unassigned —</option>${staffList.map((u) => `<option value="${u.id}" ${u.id === b.assigned_to ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select></td>
@@ -286,7 +294,7 @@ async function renderBoard() {
       <select id="fs"><option value="">All statuses</option>${STATUSES.map((s) => `<option ${f.status === s ? 'selected' : ''}>${s}</option>`).join('')}</select>
       <select id="fa"><option value="">Anyone</option><option value="me" ${f.assigned === 'me' ? 'selected' : ''}>Assigned to me</option><option value="none" ${f.assigned === 'none' ? 'selected' : ''}>Unassigned</option></select>
     </div>
-    ${bookings.length ? `<div class="tablewrap"><table><thead><tr><th>Slot</th><th>Requested by</th><th>Requirement</th><th>Status</th><th>Assigned</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
+    ${bookings.length ? `<div class="tablewrap"><table><thead><tr><th>Slot</th><th>Branch(es)</th><th>Requirement</th><th>Status</th><th>Assigned</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
       : '<div class="card empty">No bookings match.</div>'}`;
   window.scrollTo(0, keepScroll);
   $('#fs').onchange = (e) => { f.status = e.target.value; render(); };

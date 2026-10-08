@@ -163,3 +163,11 @@ nav a.navlink { color: var(--latte); text-decoration: none; padding: 8px 16px; f
 nav a.navlink:hover { background: rgba(249, 246, 240, .12); color: var(--foam); }
 nav a.navlink.on { background: var(--caramel); border-color: var(--caramel); color: var(--espresso); }
 .navsep { width: 1px; background: rgba(232, 213, 188, .35); margin: 4px 8px; }
+
+/* multi-branch picker */
+.bpick { max-height: 260px; overflow: auto; border: 1.5px solid var(--line-soft); border-radius: 12px; padding: 8px 12px; background: var(--paper); }
+.bgroup { margin: 6px 0 10px; }
+.bgroup > b { font-family: var(--serif); font-size: 13px; color: var(--mocha); }
+.bchecks { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 2px 10px; }
+label.chk { display: flex; align-items: center; gap: 6px; margin: 2px 0; font-weight: 600; font-size: 14px; color: var(--espresso); }
+label.chk input { width: auto; }
