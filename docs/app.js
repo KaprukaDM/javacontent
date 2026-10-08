@@ -103,6 +103,7 @@ async function renderCalendar() {
     cells += `<div class="day ${past ? 'past' : ''} ${date === MIN_DATE ? 'today' : ''}"><span class="n">${d}</span>${out ? '' : slots}</div>`;
   }
   app.innerHTML = `
+    ${ADMIN ? '' : '<div class="hello"><b>☕ Book your content slot</b>Pick a free slot, tell us what you need posted, and we’ll get brewing.</div>'}
     <div class="bar">
       <button class="btn alt" id="prev">&larr;</button>
       <h2>${first.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</h2>
