@@ -149,3 +149,9 @@ body.login-screen main {
 body.login-screen .auth { margin: 0; width: 100%; max-width: 400px; background: rgba(255, 253, 249, .96); border-top: 6px solid var(--caramel); }
 .slot.booked.mine { outline: 2px solid var(--caramel); }
 .slot.booked:disabled { opacity: .85; }
+
+/* closed (lead-time) days: greyed out and not clickable */
+.day.closed { background: #f1ede6; border-color: #e3dccf; box-shadow: none; }
+.day.closed .n { color: #a99e91; }
+.slot.s-closed { background: #e9e3d9; color: #9c9185; border: 1px dashed #cfc5b6; cursor: not-allowed; filter: grayscale(1); opacity: .75; }
+.slot.s-closed:hover { transform: none; box-shadow: none; background: #e9e3d9; }

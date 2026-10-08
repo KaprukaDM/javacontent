@@ -163,10 +163,10 @@ async function renderCalendar() {
       const b = by[date + '|' + n];
       const label = b && (b.branch || b.requester_name || 'Booked');
       if (b) return `<button class="slot booked ${b.mine ? 'mine' : ''}" ${b.mine ? `data-id="${b.id}"` : 'disabled'} title="${esc(label)} · ${b.status}"><span class="dot d-${b.status}"></span>S${n} · ${esc(label)}</button>`;
-      return `<button class="slot s-free" data-date="${date}" data-n="${n}" ${past || out || closed ? 'disabled' : ''}>S${n} · ${closed ? 'Closed' : 'Free'}</button>`;
+      return `<button class="slot ${closed ? 's-closed' : 's-free'}" data-date="${date}" data-n="${n}" ${past || out || closed ? 'disabled' : ''}>S${n} · ${closed ? 'Closed' : 'Free'}</button>`;
     }).join('');
     const occ = ADMIN ? occasionsFor(date) : [];
-    cells += `<div class="day ${past ? 'past' : ''} ${date === MIN_DATE ? 'today' : ''} ${occ.length ? 'has-occ' : ''}"><span class="n">${d}</span>${occ.map((o) => `<span class="occ" title="${esc(o.name)}">${o.icon} ${esc(o.name)}</span>`).join('')}${out ? '' : slots}</div>`;
+    cells += `<div class="day ${past ? 'past' : ''} ${closed ? 'closed' : ''} ${date === MIN_DATE ? 'today' : ''} ${occ.length ? 'has-occ' : ''}"><span class="n">${d}</span>${occ.map((o) => `<span class="occ" title="${esc(o.name)}">${o.icon} ${esc(o.name)}</span>`).join('')}${out ? '' : slots}</div>`;
   }
   app.innerHTML = `
     ${ADMIN ? '' : `<div class="hello"><b>☕ Book your content slot · ${esc(me.branch)}</b>Pick a free slot, tell us what you need posted, and we’ll get brewing. Bookings open from ${fmtDate(BOOK_FROM)} so we have time to prepare. Click your own bookings to see their status.</div>`}
