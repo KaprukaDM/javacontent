@@ -157,15 +157,15 @@ async function renderCalendar() {
   for (let i = 0; i < first.getDay(); i++) cells += '<div class="day pad"></div>';
   for (let d = 1; d <= days; d++) {
     const date = `${month}-${pad(d)}`;
-    const past = date < MIN_DATE, out = date > MAX_DATE, closed = !isStaff() && !past && date < BOOK_FROM;
+    const past = date < MIN_DATE, out = date > MAX_DATE, blocked = !past && date < BOOK_FROM, closed = blocked && !isStaff();
     const slots = [1, 2].map((n) => {
       const b = by[date + '|' + n];
       const label = b && (b.branch || b.requester_name || 'Booked');
       if (b) return `<button class="slot booked ${b.mine ? 'mine' : ''}" ${b.mine ? `data-id="${b.id}"` : 'disabled'} title="${esc(label)} · ${b.status}"><span class="dot d-${b.status}"></span>S${n} · ${esc(label)}</button>`;
-      return `<button class="slot ${closed ? 's-closed' : 's-free'}" data-date="${date}" data-n="${n}" ${past || out || closed ? 'disabled' : ''}>S${n} · ${closed ? 'Closed' : 'Free'}</button>`;
+      return `<button class="slot ${blocked ? 's-closed' : 's-free'}" data-date="${date}" data-n="${n}" ${past || out || closed ? 'disabled' : ''}>S${n} · ${blocked ? (closed ? 'Closed' : 'Staff only') : 'Free'}</button>`;
     }).join('');
     const occ = isStaff() ? occasionsFor(date) : [];
-    cells += `<div class="day ${past ? 'past' : ''} ${closed ? 'closed' : ''} ${date === MIN_DATE ? 'today' : ''} ${occ.length ? 'has-occ' : ''}"><span class="n">${d}</span>${occ.map((o) => `<span class="occ" title="${esc(o.name)}">${o.icon} ${esc(o.name)}</span>`).join('')}${out ? '' : slots}</div>`;
+    cells += `<div class="day ${past ? 'past' : ''} ${blocked ? 'closed' : ''} ${date === MIN_DATE ? 'today' : ''} ${occ.length ? 'has-occ' : ''}"><span class="n">${d}</span>${occ.map((o) => `<span class="occ" title="${esc(o.name)}">${o.icon} ${esc(o.name)}</span>`).join('')}${out ? '' : slots}</div>`;
   }
   app.innerHTML = `
     ${ADMIN ? '' : `<div class="hello"><b>☕ Book your content slot${isBranch() ? ` · ${esc(me.branch)}` : ''}</b>Pick a free slot, tell us what you need posted, and we’ll get brewing. Bookings open from ${fmtDate(BOOK_FROM)} so we have time to prepare. ${isBranch() ? 'Click your own bookings to see their status.' : 'You are signed in as backend, so you can book for any branch and manage every booking.'}</div>`}

@@ -155,3 +155,5 @@ body.login-screen .auth { margin: 0; width: 100%; max-width: 400px; background: 
 .day.closed .n { color: #a99e91; }
 .slot.s-closed { background: #e9e3d9; color: #9c9185; border: 1px dashed #cfc5b6; cursor: not-allowed; filter: grayscale(1); opacity: .75; }
 .slot.s-closed:hover { transform: none; box-shadow: none; background: #e9e3d9; }
+.slot.s-closed { cursor: pointer; }
+.slot.s-closed:disabled { cursor: not-allowed; }
