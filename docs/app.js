@@ -110,7 +110,7 @@ async function renderCalendar() {
     const past = date < MIN_DATE, out = date > MAX_DATE, closed = !me && !past && date < BOOK_FROM;
     const slots = [1, 2].map((n) => {
       const b = by[date + '|' + n];
-      if (b) return `<button class="slot s-${b.status}" data-id="${b.id}" title="${esc(b.requester_name)} · ${b.status}">S${n} · ${esc(b.requester_name)}</button>`;
+      if (b) return `<button class="slot booked" data-id="${b.id}" title="${esc(b.requester_name)} · ${b.status}"><span class="dot d-${b.status}"></span>S${n} · ${esc(b.requester_name)}</button>`;
       return `<button class="slot s-free" data-date="${date}" data-n="${n}" ${past || out || closed ? 'disabled' : ''}>S${n} · ${closed ? 'Closed' : 'Free'}</button>`;
     }).join('');
     cells += `<div class="day ${past ? 'past' : ''} ${date === MIN_DATE ? 'today' : ''}"><span class="n">${d}</span>${out ? '' : slots}</div>`;
