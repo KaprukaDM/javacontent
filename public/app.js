@@ -2,6 +2,7 @@ const $ = (s) => document.querySelector(s);
 const app = $('#app'), nav = $('#nav'), who = $('#who');
 const STATUSES = ['received', 'working', 'approval', 'rejected', 'completed'];
 let token = localStorage.getItem('jl_token');
+const ADMIN = location.pathname.replace(/\/$/, '') === '/admin';
 let me = null, view = 'calendar', month = null, staffList = [];
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -33,26 +34,26 @@ function signOut(silent) {
   token = null; me = null; localStorage.removeItem('jl_token');
   view = 'calendar'; renderChrome(); render();
 }
-function loginDialog() {
-  openModal(`<h3>Backend sign in</h3><form id="lf">
+function loginPage() {
+  nav.innerHTML = '';
+  app.innerHTML = `<div class="card auth"><h2>Backend sign in</h2><form id="lf">
     <label>Username</label><input name="username" autocomplete="username" required>
     <label>Password</label><input name="password" type="password" autocomplete="current-password" required>
     <div class="err" id="le"></div>
-    <div class="row"><button type="button" class="btn alt" id="cx">Cancel</button><button class="btn">Sign in</button></div></form>`);
-  $('#cx').onclick = closeModal;
+    <button class="btn" style="width:100%;margin-top:12px">Sign in</button></form></div>`;
   $('#lf').onsubmit = async (e) => {
     e.preventDefault();
     try {
       const r = await api('/login', 'POST', Object.fromEntries(new FormData(e.target)));
       token = r.token; localStorage.setItem('jl_token', token);
-      closeModal(); await boot();
+      await boot();
     } catch (err) { $('#le').textContent = err.message; }
   };
 }
 
 async function boot() {
   me = null;
-  if (token) {
+  if (ADMIN && token) {
     try {
       me = (await api('/me')).user;
       staffList = (await api('/users')).users.filter((u) => u.active);
@@ -65,6 +66,7 @@ async function boot() {
 const isTyping = () => ['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName);
 
 function renderChrome() {
+  if (!ADMIN) { nav.hidden = who.hidden = true; return; }
   const tabs = [['calendar', 'Calendar']];
   if (me) tabs.push(['board', 'Work board']);
   if (me?.role === 'admin') tabs.push(['users', 'Users']);
@@ -73,14 +75,15 @@ function renderChrome() {
   nav.querySelectorAll('button').forEach((b) => (b.onclick = () => { view = b.dataset.v; renderChrome(); render(); }));
   who.innerHTML = me
     ? `${esc(me.name)} <span class="chip">${esc(me.role)}</span><button class="btn sm alt" id="out">Sign out</button>`
-    : '<button class="btn sm alt" id="in">Backend login</button>';
-  if (me) $('#out').onclick = () => signOut(); else $('#in').onclick = loginDialog;
+    : '';
+  if (me) $('#out').onclick = () => signOut();
 }
 function render(quiet) {
+  if (ADMIN && !me) return loginPage();
   const fn = { calendar: renderCalendar, board: renderBoard, users: renderUsers }[view];
   fn(quiet).catch((e) => { if (!quiet) toast(e.message); });
 }
-setInterval(() => { if ($('#modal').hidden && !document.hidden && !isTyping()) render(true); }, 10000);
+setInterval(() => { if ($('#modal').hidden && !document.hidden && !isTyping() && !(ADMIN && !me)) render(true); }, 10000);
 
 // ---------- calendar ----------
 async function renderCalendar() {

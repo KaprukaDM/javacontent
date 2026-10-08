@@ -13,6 +13,7 @@ npm start          # http://localhost:3000
 ```
 
 Requires Node 22.13+ (uses the built-in `node:sqlite`). Set `PORT` and `ADMIN_PASSWORD` as env vars if needed.
+Backend login lives at **/admin** (e.g. http://localhost:3000/admin); the public calendar at `/` has no login.
 On first start an admin is seeded: `admin` / `admin123` (or `ADMIN_PASSWORD`). Change it.
 
 ## Roles

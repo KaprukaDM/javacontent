@@ -90,6 +90,7 @@ LEFT JOIN users a ON a.id = b.assigned_to`;
 // ---------- app ----------
 const app = express();
 app.use(express.json({ limit: '100kb' }));
+app.get(['/admin', '/admin/'], (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 app.use(express.static(path.join(__dirname, 'public')));
 
 const auth = (roles) => (req, res, next) => {
