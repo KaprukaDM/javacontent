@@ -4,6 +4,14 @@ const STATUSES = ['received', 'working', 'approval', 'rejected', 'completed'];
 const ADMIN = !!window.JL_ADMIN;
 const sb = supabase.createClient(JL_CONFIG.url, JL_CONFIG.key);
 const MAIL_DOMAIN = '@javalounge.app';
+const BRANCHES = {
+  'Colombo': ['Bambalapitiya', 'Barnes Place', 'Colombo 01 (Fort)', 'Jawattha', 'Mount Lavinia', 'Nawala', 'Nugegoda', 'Pelawatta', 'Weli Park'],
+  'Kandy': ['Kandy', 'Peradeniya'],
+  'Other Cities': ['Ambuluwawa', 'Weligama'],
+  'Other Outlets': ['Battaramulla', 'Gamsaba Junction', 'Kelaniya (Kiribathgoda)', 'Makumbura (Kottawa)', 'Negombo', 'Piliyandala', 'Wellawatte'],
+};
+const branchOptions = (sel) => `<option value="">Select branch…</option>` + Object.entries(BRANCHES).map(([g, l]) =>
+  `<optgroup label="${g}">${l.map((b) => `<option ${b === sel ? 'selected' : ''}>${esc(b)}</option>`).join('')}</optgroup>`).join('');
 let me = null, view = 'calendar', month = null, staffList = [];
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -127,8 +135,10 @@ async function renderCalendar() {
 
 function bookDialog(date, n) {
   const saved = me ? '' : (() => { try { return localStorage.getItem('jl_name') || ''; } catch { return ''; } })();
+  const savedBranch = me ? '' : (() => { try { return localStorage.getItem('jl_branch') || ''; } catch { return ''; } })();
   openModal(`<h3>Book ${fmtDate(date)} · Slot ${n}</h3>
     <form id="bf"><label>Your name</label><input name="requester_name" value="${esc(saved)}" maxlength="80" required>
+    <label>Branch</label><select name="branch" required>${branchOptions(savedBranch)}</select>
     <label>What do you need posted?</label>
     <textarea name="requirement" maxlength="4000" placeholder="Describe the post requirement…" required></textarea>
     <div class="err" id="be"></div>
@@ -139,13 +149,13 @@ function bookDialog(date, n) {
     const fd = new FormData(e.target);
     const { error } = await sb.from('bookings').insert({
       slot_date: date, slot_no: n,
-      requester_name: String(fd.get('requester_name')).trim(), requirement: String(fd.get('requirement')).trim() });
+      requester_name: String(fd.get('requester_name')).trim(), branch: fd.get('branch'), requirement: String(fd.get('requirement')).trim() });
     if (error) {
       $('#be').textContent = error.code === '23505' ? 'That slot was just taken' : 'Could not book this slot. Check your name and requirement.';
       if (error.code === '23505') render();
       return;
     }
-    try { localStorage.setItem('jl_name', String(fd.get('requester_name')).trim()); } catch {}
+    try { localStorage.setItem('jl_name', String(fd.get('requester_name')).trim()); localStorage.setItem('jl_branch', fd.get('branch')); } catch {}
     closeModal(); toast('Slot booked'); render();
   };
 }
@@ -154,7 +164,7 @@ async function detailDialog(id) {
   const b = must(await sb.from('bookings').select('*').eq('id', id).single());
   const history = must(await sb.from('status_history').select('*').eq('booking_id', id).order('id'));
   openModal(`<h3>${fmtDate(b.slot_date)} · Slot ${b.slot_no}</h3>
-    <p>${chip(b.status)} &nbsp; for <b>${esc(b.requester_name)}</b> · assigned: <b>${esc(b.assigned_name || 'nobody yet')}</b></p>
+    <p>${chip(b.status)} &nbsp; for <b>${esc(b.requester_name)}</b>${b.branch ? ` · ${esc(b.branch)}` : ''} · assigned: <b>${esc(b.assigned_name || 'nobody yet')}</b></p>
     <div class="req-text">${esc(b.requirement)}</div>
     ${me ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
       <div><label>Status</label><select id="d-status">${STATUSES.map((s) => `<option ${s === b.status ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
@@ -192,7 +202,7 @@ async function renderBoard() {
   const keepScroll = window.scrollY;
   const rows = bookings.map((b) => `<tr>
     <td><b>${fmtDate(b.slot_date)}</b><br>Slot ${b.slot_no}</td>
-    <td>${esc(b.requester_name)}</td>
+    <td>${esc(b.requester_name)}${b.branch ? `<br><small>${esc(b.branch)}</small>` : ''}</td>
     <td class="req">${esc(b.requirement)}</td>
     <td><select data-id="${b.id}" data-f="status">${STATUSES.map((s) => `<option ${s === b.status ? 'selected' : ''}>${s}</option>`).join('')}</select></td>
     <td><select data-id="${b.id}" data-f="assigned_to"><option value="">— unassigned —</option>${staffList.map((u) => `<option value="${u.id}" ${u.id === b.assigned_to ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select></td>

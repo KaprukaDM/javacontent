@@ -19,6 +19,7 @@ create table if not exists public.bookings (
   slot_date date not null,
   slot_no smallint not null check (slot_no in (1,2)),
   requester_name text not null check (char_length(btrim(requester_name)) between 2 and 80),
+  branch text check (branch is null or char_length(btrim(branch)) between 2 and 60),
   requirement text not null check (char_length(btrim(requirement)) between 3 and 4000),
   status text not null default 'received'
     check (status in ('received','working','approval','rejected','completed')),
@@ -106,6 +107,7 @@ drop policy if exists bookings_insert on public.bookings;
 create policy bookings_insert on public.bookings for insert to anon, authenticated
   with check (
     status = 'received' and assigned_to is null and assigned_name is null
+    and branch is not null
     and slot_date >= (now() at time zone 'Asia/Colombo')::date
     and slot_date <= (now() at time zone 'Asia/Colombo')::date + interval '5 years'
   );
@@ -124,7 +126,7 @@ create policy history_read on public.status_history for select to anon, authenti
 revoke all on public.profiles, public.bookings, public.status_history from anon, authenticated;
 grant select on public.profiles to authenticated;
 grant select on public.bookings, public.status_history to anon, authenticated;
-grant insert (slot_date, slot_no, requester_name, requirement) on public.bookings to anon, authenticated;
+grant insert (slot_date, slot_no, requester_name, branch, requirement) on public.bookings to anon, authenticated;
 grant update (status, assigned_to) on public.bookings to authenticated;
 grant delete on public.bookings to authenticated;
 grant usage on sequence public.bookings_id_seq to anon, authenticated;
