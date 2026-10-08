@@ -29,6 +29,43 @@ const LEAD_DAYS = 3;
 const addDays = (d, n) => { const t = new Date(d + 'T00:00:00Z'); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); };
 const BOOK_FROM = addDays(MIN_DATE, LEAD_DAYS);
 
+// ---------- key occasions (shown on the admin calendar to plan content) ----------
+// nth weekday of a month: wd 0=Sun..6=Sat, n=1..5 (m0 is 0-based). Returns the day of month.
+const nthWeekday = (y, m0, wd, n) => 1 + ((wd - new Date(Date.UTC(y, m0, 1)).getUTCDay() + 7) % 7) + 7 * (n - 1);
+const OCCASIONS = [
+  { name: "New Year's Day", icon: '🎆', md: '01-01' },
+  { name: 'Independence Day', icon: '🇱🇰', md: '02-04' },
+  { name: "Valentine's Day", icon: '❤️', md: '02-14' },
+  { name: "Women's Day", icon: '🌸', md: '03-08' },
+  { name: 'Avurudu Eve', icon: '🪔', md: '04-13' },
+  { name: 'Sinhala & Tamil New Year', icon: '🪔', md: '04-14' },
+  { name: "Mother's Day", icon: '💐', calc: (y) => [4, nthWeekday(y, 4, 0, 2)] },
+  { name: "Father's Day", icon: '👔', calc: (y) => [5, nthWeekday(y, 5, 0, 3)] },
+  { name: 'World Chocolate Day', icon: '🍫', md: '07-07' },
+  { name: 'Friendship Day', icon: '🤝', calc: (y) => [7, nthWeekday(y, 7, 0, 1)] },
+  { name: 'International Coffee Day', icon: '☕', md: '10-01' },
+  { name: "Children's Day", icon: '🧒', md: '10-01' },
+  { name: 'Halloween', icon: '🎃', md: '10-31' },
+  { name: 'Black Friday', icon: '🛍️', calc: (y) => [10, nthWeekday(y, 10, 4, 4) + 1] },
+  { name: 'Christmas Eve', icon: '🎅', md: '12-24' },
+  { name: 'Christmas Day', icon: '🎄', md: '12-25' },
+  { name: "New Year's Eve", icon: '🥂', md: '12-31' },
+];
+const occCache = {};
+function occasionsFor(date) {
+  const y = +date.slice(0, 4);
+  if (!occCache[y]) {
+    const map = {};
+    OCCASIONS.forEach((o) => {
+      const [m0, d] = o.calc ? o.calc(y) : [+o.md.slice(0, 2) - 1, +o.md.slice(3)];
+      const key = `${y}-${pad(m0 + 1)}-${pad(d)}`;
+      (map[key] = map[key] || []).push(o);
+    });
+    occCache[y] = map;
+  }
+  return occCache[y][date] || [];
+}
+
 function toast(msg) {
   const t = $('#toast'); t.textContent = msg; t.hidden = false;
   clearTimeout(toast.t); toast.t = setTimeout(() => (t.hidden = true), 2800);
@@ -113,7 +150,8 @@ async function renderCalendar() {
       if (b) return `<button class="slot booked" data-id="${b.id}" title="${esc(b.requester_name)} · ${b.status}"><span class="dot d-${b.status}"></span>S${n} · ${esc(b.requester_name)}</button>`;
       return `<button class="slot s-free" data-date="${date}" data-n="${n}" ${past || out || closed ? 'disabled' : ''}>S${n} · ${closed ? 'Closed' : 'Free'}</button>`;
     }).join('');
-    cells += `<div class="day ${past ? 'past' : ''} ${date === MIN_DATE ? 'today' : ''}"><span class="n">${d}</span>${out ? '' : slots}</div>`;
+    const occ = ADMIN ? occasionsFor(date) : [];
+    cells += `<div class="day ${past ? 'past' : ''} ${date === MIN_DATE ? 'today' : ''} ${occ.length ? 'has-occ' : ''}"><span class="n">${d}</span>${occ.map((o) => `<span class="occ" title="${esc(o.name)}">${o.icon} ${esc(o.name)}</span>`).join('')}${out ? '' : slots}</div>`;
   }
   app.innerHTML = `
     ${ADMIN ? '' : '<div class="hello"><b>☕ Book your content slot</b>Pick a free slot, tell us what you need posted, and we’ll get brewing. Bookings open from ${fmtDate(BOOK_FROM)} so we have time to prepare.</div>'}

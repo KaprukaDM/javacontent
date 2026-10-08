@@ -135,3 +135,8 @@ td select { padding: 5px 8px; }
   main { padding: 14px 10px; }
   .bar h2 { font-size: 24px; min-width: 150px; }
 }
+
+/* key occasions (admin calendar) */
+.day.has-occ { border-color: var(--caramel); background: #fff8ec; }
+.occ { font-size: 11px; font-weight: 800; line-height: 1.25; background: var(--latte); color: var(--mocha); border-radius: 8px; padding: 2px 6px; }
+@media (max-width: 720px) { .occ { font-size: 9px; padding: 1px 4px; } }
