@@ -1,0 +1,9 @@
+{
+  "name": "javacontent",
+  "version": "1.0.0",
+  "description": "Java Lounge content booking system",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": ">=22.13" },
+  "dependencies": { "express": "^4.19.2" }
+}
