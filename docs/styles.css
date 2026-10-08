@@ -140,3 +140,12 @@ td select { padding: 5px 8px; }
 .day.has-occ { border-color: var(--caramel); background: #fff8ec; }
 .occ { font-size: 11px; font-weight: 800; line-height: 1.25; background: var(--latte); color: var(--mocha); border-radius: 8px; padding: 2px 6px; }
 @media (max-width: 720px) { .occ { font-size: 9px; padding: 1px 4px; } }
+
+/* login screen: Java Lounge photo behind the sign-in card (front end and backend) */
+body.login-screen main {
+  display: flex; align-items: center; justify-content: center; max-width: none;
+  background: linear-gradient(rgba(43, 26, 17, .55), rgba(43, 26, 17, .65)), url('login-bg.jpg') center / cover no-repeat;
+}
+body.login-screen .auth { margin: 0; width: 100%; max-width: 400px; background: rgba(255, 253, 249, .96); border-top: 6px solid var(--caramel); }
+.slot.booked.mine { outline: 2px solid var(--caramel); }
+.slot.booked:disabled { opacity: .85; }

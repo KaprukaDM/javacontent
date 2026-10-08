@@ -8,13 +8,21 @@ Anyone can book a slot and type the post requirement; the backend team manages i
 Static site (GitHub Pages) + Supabase (Postgres, Auth, row level security). No server to run.
 
 ## Pages
-- `/` – public calendar, no login. Pick a free slot, enter your name and requirement. Status updates show live (refreshes every 10s).
-- `/admin/` – backend login. Work board (set status, assign), and for admins a Users tab to create backend users.
+- `/` – branch sign-in, then the booking calendar. Each outlet has its own login; the branch is filled in automatically. Branches see which slots are taken (and by which branch) but only open their own bookings.
+- `/admin/` – backend login (admin / staff). Calendar with key occasions, Work board (status, assign), and for admins a Users tab: create, edit, reset password, disable, delete.
 
 ## One-time Supabase setup
-1. Supabase dashboard → **SQL Editor** → run [`supabase/setup.sql`](supabase/setup.sql), then [`supabase/user_management.sql`](supabase/user_management.sql).
-2. Edit the password in [`supabase/seed_admin.sql`](supabase/seed_admin.sql) (don't commit it) and run it to create the first admin (`admin`).
-3. Dashboard → Authentication → Providers → Email: turn **off** "Confirm email" and **off** public sign-ups ("Allow new users to sign up").
+Supabase dashboard → **SQL Editor**. Run these files in order:
+1. [`supabase/setup.sql`](supabase/setup.sql)
+2. [`supabase/user_management.sql`](supabase/user_management.sql)
+3. [`supabase/add_branch.sql`](supabase/add_branch.sql)
+4. [`supabase/lead_time.sql`](supabase/lead_time.sql)
+5. [`supabase/branch_accounts.sql`](supabase/branch_accounts.sql)
+
+Then:
+- Edit the password in [`supabase/seed_admin.sql`](supabase/seed_admin.sql) (don't commit it) and run it to create the first admin.
+- Run `select * from public.seed_branch_users();` to create the 20 branch logins. Copy the usernames and passwords it returns; they can't be shown again (admin can reset any of them in the Users tab).
+- Authentication → Sign In / Providers: turn **off** "Confirm email" and **off** "Allow new users to sign up".
 
 ## Hosting
 GitHub → Settings → Pages → Source: *Deploy from a branch*, branch `main`, folder `/docs`.
