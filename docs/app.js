@@ -241,4 +241,22 @@ async function renderUsers() {
   }));
 }
 
+function editUserDialog(u) {
+  openModal(`<h3>Edit user</h3><form id="ef">
+    <label>Name</label><input name="name" value="${esc(u.name)}" required>
+    <label>Username</label><input name="username" value="${esc(u.username)}" required>
+    <label>Role</label><select name="role"><option value="staff" ${u.role === 'staff' ? 'selected' : ''}>staff (backend)</option><option value="admin" ${u.role === 'admin' ? 'selected' : ''}>admin</option></select>
+    <label>New password (leave blank to keep)</label><input name="password" type="text" minlength="6" autocomplete="off">
+    <div class="err" id="ee"></div>
+    <div class="row"><button type="button" class="btn alt" id="cx">Cancel</button><button class="btn">Save</button></div></form>`);
+  $('#cx').onclick = closeModal;
+  $('#ef').onsubmit = async (e) => {
+    e.preventDefault();
+    const f = Object.fromEntries(new FormData(e.target));
+    const { error } = await sb.rpc('update_staff_user', { p_id: u.id, p_username: f.username, p_name: f.name, p_role: f.role, p_password: f.password || null });
+    if (error) return ($('#ee').textContent = error.message);
+    closeModal(); toast('User updated'); await loadMe(); render();
+  };
+}
+
 boot();
