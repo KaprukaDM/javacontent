@@ -87,8 +87,8 @@ function loginPage() {
   nav.innerHTML = '';
   who.innerHTML = '';
   document.body.classList.add('login-screen');
-  app.innerHTML = `<div class="card auth"><h2>${ADMIN ? 'Backend sign in' : 'Branch sign in'}</h2>
-    <p style="margin-top:0">${ADMIN ? 'Java Lounge content team' : 'Sign in with your branch login to book content slots.'}</p><form id="lf">
+  app.innerHTML = `<div class="card auth"><h2>${ADMIN ? 'Backend sign in' : 'Sign in'}</h2>
+    <p style="margin-top:0">${ADMIN ? 'Java Lounge content team' : 'Branches and the Java Lounge team: sign in to book content slots.'}</p><form id="lf">
     <label>Username</label><input name="username" autocomplete="username" required>
     <label>Password</label><input name="password" type="password" autocomplete="current-password" required>
     <div class="err" id="le"></div>
@@ -110,7 +110,6 @@ async function loadMe() {
   const { data } = await sb.from('profiles').select('*').eq('id', s.session.user.id).maybeSingle();
   me = data && data.active ? data : null;
   if (me && ADMIN && me.role === 'branch') { me = null; denyReason = 'Branch logins sign in on the main booking page, not the backend.'; }
-  if (me && !ADMIN && me.role !== 'branch') { me = null; denyReason = 'Backend users sign in at the /admin/ page.'; }
   if (me && isStaff()) {
     staffList = (await sb.from('profiles').select('id,name,role,active').eq('active', true).in('role', ['admin', 'staff']).order('name')).data || [];
   }
@@ -134,7 +133,7 @@ function renderChrome() {
     nav.querySelectorAll('button').forEach((b) => (b.onclick = () => { view = b.dataset.v; renderChrome(); render(); }));
   } else nav.innerHTML = '';
   who.innerHTML = me
-    ? `${esc(isBranch() ? me.branch : me.name)} <span class="chip">${esc(me.role)}</span><button class="btn sm alt" id="out">Sign out</button>` : '';
+    ? `${esc(isBranch() ? me.branch : me.name)} <span class="chip">${esc(me.role)}</span>${!ADMIN && isStaff() ? '<a class="btn sm alt" href="admin/" style="text-decoration:none">Backend</a>' : ''}${ADMIN && isStaff() ? '' : ''}<button class="btn sm alt" id="out">Sign out</button>` : '';
   if (me) $('#out').onclick = signOut;
 }
 function render(quiet) {
@@ -165,11 +164,11 @@ async function renderCalendar() {
       if (b) return `<button class="slot booked ${b.mine ? 'mine' : ''}" ${b.mine ? `data-id="${b.id}"` : 'disabled'} title="${esc(label)} · ${b.status}"><span class="dot d-${b.status}"></span>S${n} · ${esc(label)}</button>`;
       return `<button class="slot ${closed ? 's-closed' : 's-free'}" data-date="${date}" data-n="${n}" ${past || out || closed ? 'disabled' : ''}>S${n} · ${closed ? 'Closed' : 'Free'}</button>`;
     }).join('');
-    const occ = ADMIN ? occasionsFor(date) : [];
+    const occ = isStaff() ? occasionsFor(date) : [];
     cells += `<div class="day ${past ? 'past' : ''} ${closed ? 'closed' : ''} ${date === MIN_DATE ? 'today' : ''} ${occ.length ? 'has-occ' : ''}"><span class="n">${d}</span>${occ.map((o) => `<span class="occ" title="${esc(o.name)}">${o.icon} ${esc(o.name)}</span>`).join('')}${out ? '' : slots}</div>`;
   }
   app.innerHTML = `
-    ${ADMIN ? '' : `<div class="hello"><b>☕ Book your content slot · ${esc(me.branch)}</b>Pick a free slot, tell us what you need posted, and we’ll get brewing. Bookings open from ${fmtDate(BOOK_FROM)} so we have time to prepare. Click your own bookings to see their status.</div>`}
+    ${ADMIN ? '' : `<div class="hello"><b>☕ Book your content slot${isBranch() ? ` · ${esc(me.branch)}` : ''}</b>Pick a free slot, tell us what you need posted, and we’ll get brewing. Bookings open from ${fmtDate(BOOK_FROM)} so we have time to prepare. ${isBranch() ? 'Click your own bookings to see their status.' : 'You are signed in as backend, so you can book for any branch and manage every booking.'}</div>`}
     <div class="bar">
       <button class="btn alt" id="prev">&larr;</button>
       <h2>${first.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</h2>
