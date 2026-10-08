@@ -126,14 +126,20 @@ const isTyping = () => ['INPUT', 'TEXTAREA'].includes(document.activeElement?.ta
 function renderChrome() {
   document.body.classList.toggle('login-screen', !me);
   nav.hidden = who.hidden = false;
+  nav.innerHTML = '';
+  if (isStaff()) {
+    // two top-level destinations for backend users: the booking front end and the backend
+    nav.innerHTML = `<a class="navlink ${ADMIN ? '' : 'on'}" href="${ADMIN ? '../' : './'}">Front end</a>
+      <a class="navlink ${ADMIN ? 'on' : ''}" href="${ADMIN ? './' : 'admin/'}">Backend</a>`;
+  }
   if (ADMIN && me) {
     const tabs = [['calendar', 'Calendar'], ['board', 'Work board']];
     if (me.role === 'admin') tabs.push(['users', 'Users']);
-    nav.innerHTML = tabs.map(([k, l]) => `<button data-v="${k}" class="${view === k ? 'on' : ''}">${l}</button>`).join('');
+    nav.innerHTML += `<span class="navsep"></span>` + tabs.map(([k, l]) => `<button data-v="${k}" class="${view === k ? 'on' : ''}">${l}</button>`).join('');
     nav.querySelectorAll('button').forEach((b) => (b.onclick = () => { view = b.dataset.v; renderChrome(); render(); }));
-  } else nav.innerHTML = '';
+  }
   who.innerHTML = me
-    ? `${esc(isBranch() ? me.branch : me.name)} <span class="chip">${esc(me.role)}</span>${!ADMIN && isStaff() ? '<a class="btn sm alt" href="admin/" style="text-decoration:none">Backend</a>' : ''}${ADMIN && isStaff() ? '' : ''}<button class="btn sm alt" id="out">Sign out</button>` : '';
+    ? `${esc(isBranch() ? me.branch : me.name)} <span class="chip">${esc(me.role)}</span><button class="btn sm alt" id="out">Sign out</button>` : '';
   if (me) $('#out').onclick = signOut;
 }
 function render(quiet) {
