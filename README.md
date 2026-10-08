@@ -1,30 +1,24 @@
 # javacontent
 
 Content booking system for [Java Lounge](https://javalounge.lk/). Two slots per day, bookable up to 5 years ahead.
-A requester picks a free slot and types the post requirement; the backend team works it and the status syncs back.
+Anyone can book a slot and type the post requirement; the backend team manages it and the status syncs back.
 
 **Statuses:** received → working → approval → rejected / completed
 
-## Run
+Static site (GitHub Pages) + Supabase (Postgres, Auth, row level security). No server to run.
 
-```
-npm install
-npm start          # http://localhost:3000
-```
+## Pages
+- `/` – public calendar, no login. Pick a free slot, enter your name and requirement. Status updates show live (refreshes every 10s).
+- `/admin/` – backend login. Work board (set status, assign), and for admins a Users tab to create backend users.
 
-Requires Node 22.13+ (uses the built-in `node:sqlite`). Set `PORT` and `ADMIN_PASSWORD` as env vars if needed.
-Backend login lives at **/admin** (e.g. http://localhost:3000/admin); the public calendar at `/` has no login.
-On first start an admin is seeded: `admin` / `admin123` (or `ADMIN_PASSWORD`). Change it.
+## One-time Supabase setup
+1. Supabase dashboard → **SQL Editor** → run [`supabase/setup.sql`](supabase/setup.sql).
+2. Edit the password in [`supabase/seed_admin.sql`](supabase/seed_admin.sql) (don't commit it) and run it to create the first admin (`admin`).
+3. Dashboard → Authentication → Providers → Email: turn **off** "Confirm email" and **off** public sign-ups ("Allow new users to sign up").
 
-## Roles
-- **Public (no login)** – anyone can open the calendar, book a free slot with their name and requirement, and see live status.
-- **staff** (backend, login) – work board with every booking; set status, assign to a teammate.
-- **admin** – everything staff can do, plus create/disable users and reset passwords.
+## Hosting
+GitHub → Settings → Pages → Source: *Deploy from a branch*, branch `main`, folder `/docs`.
 
-Pages poll every 10s so status changes appear without a refresh.
-
-## Data
-Local SQLite file at `data/javacontent.db` (git-ignored). Tables: `users`, `sessions`, `bookings`
-(unique on `slot_date + slot_no`), `status_history`. Plain SQL, so it is straightforward to migrate to another database.
+The Supabase URL and publishable key in `docs/config.js` are public by design; access is limited by the row level security policies in `setup.sql`. Never commit the database password or a `service_role` key.
 
 Created by Fari Akthar - 207 | Kapruka Holdings PLC

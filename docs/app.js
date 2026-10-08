@@ -1,25 +1,21 @@
 const $ = (s) => document.querySelector(s);
 const app = $('#app'), nav = $('#nav'), who = $('#who');
 const STATUSES = ['received', 'working', 'approval', 'rejected', 'completed'];
-let token = localStorage.getItem('jl_token');
-const ADMIN = location.pathname.replace(/\/$/, '') === '/admin';
+const ADMIN = !!window.JL_ADMIN;
+const sb = supabase.createClient(JL_CONFIG.url, JL_CONFIG.key);
+const MAIL_DOMAIN = '@javalounge.app';
 let me = null, view = 'calendar', month = null, staffList = [];
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const chip = (s) => `<span class="chip s-${esc(s)}">${esc(s)}</span>`;
 const fmtDate = (d) => new Date(d + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
+const fmtTime = (t) => new Date(t).toLocaleString();
+const pad = (n) => String(n).padStart(2, '0');
 
-async function api(path, method = 'GET', body) {
-  const res = await fetch('/api' + path, {
-    method,
-    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  const data = await res.json().catch(() => ({}));
-  if (res.status === 401 && token) { signOut(true); throw new Error('Please sign in'); }
-  if (!res.ok) throw new Error(data.error || 'Something went wrong');
-  return data;
-}
+// Sri Lanka "today" and the 5-year horizon (matches the database rule)
+const MIN_DATE = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' });
+const MAX_DATE = (() => { const [y, m, d] = MIN_DATE.split('-').map(Number); return `${y + 5}-${pad(m)}-${pad(d)}`; })();
+
 function toast(msg) {
   const t = $('#toast'); t.textContent = msg; t.hidden = false;
   clearTimeout(toast.t); toast.t = setTimeout(() => (t.hidden = true), 2800);
@@ -27,12 +23,12 @@ function toast(msg) {
 function openModal(html) { $('#sheet').innerHTML = html; $('#modal').hidden = false; }
 function closeModal() { $('#modal').hidden = true; }
 $('#modal').addEventListener('mousedown', (e) => { if (e.target.id === 'modal') closeModal(); });
+const must = ({ data, error }) => { if (error) throw new Error(error.message); return data; };
 
-// ---------- auth (backend staff only) ----------
-function signOut(silent) {
-  if (!silent && token) api('/logout', 'POST').catch(() => {});
-  token = null; me = null; localStorage.removeItem('jl_token');
-  view = 'calendar'; renderChrome(); render();
+// ---------- backend sign-in (only on /admin/) ----------
+async function signOut() {
+  await sb.auth.signOut();
+  me = null; view = 'calendar'; renderChrome(); render();
 }
 function loginPage() {
   nav.innerHTML = '';
@@ -43,22 +39,24 @@ function loginPage() {
     <button class="btn" style="width:100%;margin-top:12px">Sign in</button></form></div>`;
   $('#lf').onsubmit = async (e) => {
     e.preventDefault();
-    try {
-      const r = await api('/login', 'POST', Object.fromEntries(new FormData(e.target)));
-      token = r.token; localStorage.setItem('jl_token', token);
-      await boot();
-    } catch (err) { $('#le').textContent = err.message; }
+    const fd = new FormData(e.target);
+    const { error } = await sb.auth.signInWithPassword({
+      email: String(fd.get('username')).trim().toLowerCase() + MAIL_DOMAIN, password: fd.get('password') });
+    if (error) return ($('#le').textContent = 'Wrong username or password');
+    if (!(await loadMe())) { await sb.auth.signOut(); return ($('#le').textContent = 'This account is not active'); }
+    boot();
   };
 }
-
+async function loadMe() {
+  const { data: s } = await sb.auth.getSession();
+  if (!s.session) return (me = null);
+  const { data } = await sb.from('profiles').select('*').eq('id', s.session.user.id).maybeSingle();
+  me = data && data.active ? data : null;
+  if (me) staffList = (await sb.from('profiles').select('id,name,active').eq('active', true).order('name')).data || [];
+  return me;
+}
 async function boot() {
-  me = null;
-  if (ADMIN && token) {
-    try {
-      me = (await api('/me')).user;
-      staffList = (await api('/users')).users.filter((u) => u.active);
-    } catch { me = null; }
-  }
+  if (ADMIN) await loadMe();
   view = me ? 'board' : 'calendar';
   renderChrome();
   render();
@@ -71,12 +69,10 @@ function renderChrome() {
   if (me) tabs.push(['board', 'Work board']);
   if (me?.role === 'admin') tabs.push(['users', 'Users']);
   nav.hidden = who.hidden = false;
-  nav.innerHTML = tabs.map(([k, l]) => `<button data-v="${k}" class="${view === k ? 'on' : ''}">${l}</button>`).join('');
+  nav.innerHTML = me ? tabs.map(([k, l]) => `<button data-v="${k}" class="${view === k ? 'on' : ''}">${l}</button>`).join('') : '';
   nav.querySelectorAll('button').forEach((b) => (b.onclick = () => { view = b.dataset.v; renderChrome(); render(); }));
-  who.innerHTML = me
-    ? `${esc(me.name)} <span class="chip">${esc(me.role)}</span><button class="btn sm alt" id="out">Sign out</button>`
-    : '';
-  if (me) $('#out').onclick = () => signOut();
+  who.innerHTML = me ? `${esc(me.name)} <span class="chip">${esc(me.role)}</span><button class="btn sm alt" id="out">Sign out</button>` : '';
+  if (me) $('#out').onclick = signOut;
 }
 function render(quiet) {
   if (ADMIN && !me) return loginPage();
@@ -87,36 +83,40 @@ setInterval(() => { if ($('#modal').hidden && !document.hidden && !isTyping() &&
 
 // ---------- calendar ----------
 async function renderCalendar() {
-  month = month || new Date().toISOString().slice(0, 7);
-  const data = await api('/calendar?month=' + month);
+  month = month || MIN_DATE.slice(0, 7);
   const [y, m] = month.split('-').map(Number);
   const first = new Date(y, m - 1, 1), days = new Date(y, m, 0).getDate();
+  const rows = must(await sb.from('bookings').select('id,slot_date,slot_no,status,requester_name')
+    .gte('slot_date', `${month}-01`).lte('slot_date', `${month}-${pad(days)}`));
   const by = {};
-  data.bookings.forEach((b) => (by[b.slot_date + '|' + b.slot_no] = b));
+  rows.forEach((b) => (by[b.slot_date + '|' + b.slot_no] = b));
   let cells = '';
   for (let i = 0; i < first.getDay(); i++) cells += '<div class="day pad"></div>';
   for (let d = 1; d <= days; d++) {
-    const date = `${month}-${String(d).padStart(2, '0')}`;
-    const past = date < data.min, out = date > data.max;
+    const date = `${month}-${pad(d)}`;
+    const past = date < MIN_DATE, out = date > MAX_DATE;
     const slots = [1, 2].map((n) => {
       const b = by[date + '|' + n];
-      if (b) return `<button class="slot s-${b.status}" data-id="${b.id}" title="${esc(b.requested_by_name)} · ${b.status}">S${n} · ${esc(b.requested_by_name)}</button>`;
+      if (b) return `<button class="slot s-${b.status}" data-id="${b.id}" title="${esc(b.requester_name)} · ${b.status}">S${n} · ${esc(b.requester_name)}</button>`;
       return `<button class="slot s-free" data-date="${date}" data-n="${n}" ${past || out ? 'disabled' : ''}>S${n} · Free</button>`;
     }).join('');
-    cells += `<div class="day ${past ? 'past' : ''} ${date === data.min ? 'today' : ''}"><span class="n">${d}</span>${out ? '' : slots}</div>`;
+    cells += `<div class="day ${past ? 'past' : ''} ${date === MIN_DATE ? 'today' : ''}"><span class="n">${d}</span>${out ? '' : slots}</div>`;
   }
   app.innerHTML = `
     <div class="bar">
       <button class="btn alt" id="prev">&larr;</button>
       <h2>${first.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</h2>
       <button class="btn alt" id="next">&rarr;</button>
-      <input type="month" id="jump" value="${month}" min="${data.min.slice(0, 7)}" max="${data.max.slice(0, 7)}">
+      <input type="month" id="jump" value="${month}" min="${MIN_DATE.slice(0, 7)}" max="${MAX_DATE.slice(0, 7)}">
       <span class="spacer"></span>
-      <span style="font-weight:600">2 slots per day · open until ${fmtDate(data.max)}</span>
+      <span style="font-weight:600">2 slots per day · open until ${fmtDate(MAX_DATE)}</span>
     </div>
     <div class="legend">${['free', ...STATUSES].map(chip).join('')}</div>
     <div class="cal">${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => `<div class="dow">${d}</div>`).join('')}${cells}</div>`;
-  const shift = (n) => { const d = new Date(y, m - 1 + n, 1); const v = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; if (v >= data.min.slice(0, 7) && v <= data.max.slice(0, 7)) { month = v; render(); } };
+  const shift = (n) => {
+    const d = new Date(y, m - 1 + n, 1), v = `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
+    if (v >= MIN_DATE.slice(0, 7) && v <= MAX_DATE.slice(0, 7)) { month = v; render(); }
+  };
   $('#prev').onclick = () => shift(-1);
   $('#next').onclick = () => shift(1);
   $('#jump').onchange = (e) => { if (e.target.value) { month = e.target.value; render(); } };
@@ -136,71 +136,76 @@ function bookDialog(date, n) {
   $('#bf').onsubmit = async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
-    try {
-      await api('/bookings', 'POST', { slot_date: date, slot_no: n, requirement: fd.get('requirement'), requester_name: fd.get('requester_name') });
-      try { localStorage.setItem('jl_name', fd.get('requester_name')); } catch {}
-      closeModal(); toast('Slot booked'); render();
-    } catch (err) { $('#be').textContent = err.message; if (/taken/.test(err.message)) render(); }
+    const { error } = await sb.from('bookings').insert({
+      slot_date: date, slot_no: n,
+      requester_name: String(fd.get('requester_name')).trim(), requirement: String(fd.get('requirement')).trim() });
+    if (error) {
+      $('#be').textContent = error.code === '23505' ? 'That slot was just taken' : 'Could not book this slot. Check your name and requirement.';
+      if (error.code === '23505') render();
+      return;
+    }
+    try { localStorage.setItem('jl_name', String(fd.get('requester_name')).trim()); } catch {}
+    closeModal(); toast('Slot booked'); render();
   };
 }
 
 async function detailDialog(id) {
-  const { booking: b, history } = await api('/bookings/' + id);
-  const canCancel = !!me;
+  const b = must(await sb.from('bookings').select('*').eq('id', id).single());
+  const history = must(await sb.from('status_history').select('*').eq('booking_id', id).order('id'));
   openModal(`<h3>${fmtDate(b.slot_date)} · Slot ${b.slot_no}</h3>
-    <p>${chip(b.status)} &nbsp; for <b>${esc(b.requested_by_name)}</b> · assigned: <b>${esc(b.assigned_to_name || 'nobody yet')}</b></p>
+    <p>${chip(b.status)} &nbsp; for <b>${esc(b.requester_name)}</b> · assigned: <b>${esc(b.assigned_name || 'nobody yet')}</b></p>
     <div class="req-text">${esc(b.requirement)}</div>
-    <b>History</b><ul class="hist">${history.map((h) => `<li>${chip(h.status)} ${esc(h.changed_by_name)} · ${esc(h.changed_at)} UTC${h.note ? '<br>' + esc(h.note) : ''}</li>`).join('')}</ul>
-    <div class="row">${canCancel ? '<button class="btn danger" id="del">Cancel booking</button>' : ''}<button class="btn alt" id="cx">Close</button></div>`);
+    <b>History</b><ul class="hist">${history.map((h) => `<li>${chip(h.status)} ${esc(h.changed_by_name)} · ${esc(fmtTime(h.changed_at))}</li>`).join('')}</ul>
+    <div class="row">${me ? '<button class="btn danger" id="del">Cancel booking</button>' : ''}<button class="btn alt" id="cx">Close</button></div>`);
   $('#cx').onclick = closeModal;
-  if (canCancel) $('#del').onclick = async () => {
+  if (me) $('#del').onclick = async () => {
     if (!confirm('Cancel this booking and free the slot?')) return;
-    try { await api('/bookings/' + id, 'DELETE'); closeModal(); toast('Booking cancelled'); render(); } catch (e) { toast(e.message); }
+    try { must(await sb.from('bookings').delete().eq('id', id)); closeModal(); toast('Booking cancelled'); render(); } catch (e) { toast(e.message); }
   };
 }
 
-// ---------- board / my bookings ----------
-async function renderBoard(quiet) {
-  const staff = true;
+// ---------- work board (staff) ----------
+async function renderBoard() {
   const f = renderBoard.f || (renderBoard.f = { status: '', assigned: '' });
-  const q = new URLSearchParams(staff ? f : {}).toString();
-  const { bookings } = await api('/bookings' + (q ? '?' + q : ''));
+  let q = sb.from('bookings').select('*').order('slot_date').order('slot_no').limit(500);
+  if (f.status) q = q.eq('status', f.status);
+  if (f.assigned === 'me') q = q.eq('assigned_to', me.id);
+  if (f.assigned === 'none') q = q.is('assigned_to', null);
+  const bookings = must(await q);
   const keepScroll = window.scrollY;
   const rows = bookings.map((b) => `<tr>
     <td><b>${fmtDate(b.slot_date)}</b><br>Slot ${b.slot_no}</td>
-    <td>${esc(b.requested_by_name)}</td>
+    <td>${esc(b.requester_name)}</td>
     <td class="req">${esc(b.requirement)}</td>
-    <td>${staff ? `<select data-id="${b.id}" data-f="status">${STATUSES.map((s) => `<option ${s === b.status ? 'selected' : ''}>${s}</option>`).join('')}</select>` : chip(b.status)}</td>
-    <td>${staff ? `<select data-id="${b.id}" data-f="assigned_to"><option value="">— unassigned —</option>${staffList.map((u) => `<option value="${u.id}" ${u.id === b.assigned_to ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select>` : esc(b.assigned_to_name || '—')}</td>
+    <td><select data-id="${b.id}" data-f="status">${STATUSES.map((s) => `<option ${s === b.status ? 'selected' : ''}>${s}</option>`).join('')}</select></td>
+    <td><select data-id="${b.id}" data-f="assigned_to"><option value="">— unassigned —</option>${staffList.map((u) => `<option value="${u.id}" ${u.id === b.assigned_to ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select></td>
     <td><button class="btn sm alt" data-open="${b.id}">Details</button></td></tr>`).join('');
   app.innerHTML = `
     <div class="bar"><h2 style="text-align:left">Work board</h2><span class="spacer"></span>
-    ${staff ? `<select id="fs"><option value="">All statuses</option>${STATUSES.map((s) => `<option ${f.status === s ? 'selected' : ''}>${s}</option>`).join('')}</select>
-      <select id="fa"><option value="">Anyone</option><option value="me" ${f.assigned === 'me' ? 'selected' : ''}>Assigned to me</option><option value="none" ${f.assigned === 'none' ? 'selected' : ''}>Unassigned</option></select>` : ''}
+      <select id="fs"><option value="">All statuses</option>${STATUSES.map((s) => `<option ${f.status === s ? 'selected' : ''}>${s}</option>`).join('')}</select>
+      <select id="fa"><option value="">Anyone</option><option value="me" ${f.assigned === 'me' ? 'selected' : ''}>Assigned to me</option><option value="none" ${f.assigned === 'none' ? 'selected' : ''}>Unassigned</option></select>
     </div>
     ${bookings.length ? `<div class="tablewrap"><table><thead><tr><th>Slot</th><th>Requested by</th><th>Requirement</th><th>Status</th><th>Assigned</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
       : '<div class="card empty">No bookings match.</div>'}`;
   window.scrollTo(0, keepScroll);
-  if (staff) {
-    $('#fs').onchange = (e) => { f.status = e.target.value; render(); };
-    $('#fa').onchange = (e) => { f.assigned = e.target.value; render(); };
-    app.querySelectorAll('select[data-id]').forEach((s) => (s.onchange = async () => {
-      const v = s.value;
-      try { await api('/bookings/' + s.dataset.id, 'PATCH', { [s.dataset.f]: s.dataset.f === 'assigned_to' ? (v ? +v : null) : v }); toast('Updated'); }
-      catch (e) { toast(e.message); render(); }
-    }));
-  }
+  $('#fs').onchange = (e) => { f.status = e.target.value; render(); };
+  $('#fa').onchange = (e) => { f.assigned = e.target.value; render(); };
+  app.querySelectorAll('select[data-id]').forEach((s) => (s.onchange = async () => {
+    const patch = s.dataset.f === 'assigned_to' ? { assigned_to: s.value || null } : { status: s.value };
+    try { must(await sb.from('bookings').update(patch).eq('id', s.dataset.id)); toast('Updated'); }
+    catch (e) { toast(e.message); render(); }
+  }));
   app.querySelectorAll('[data-open]').forEach((b) => (b.onclick = () => detailDialog(b.dataset.open)));
 }
 
 // ---------- users (admin) ----------
 async function renderUsers() {
-  if (!me || me.role !== 'admin') return;
-  const { users } = await api('/users');
+  if (me?.role !== 'admin') return;
+  const users = must(await sb.from('profiles').select('*').order('role').order('name'));
   app.innerHTML = `
     <div class="bar"><h2 style="text-align:left">Users</h2></div>
     <form class="card" id="uf" style="margin-bottom:18px">
-      <b>Create user</b>
+      <b>Create backend user</b>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px">
         <div><label>Name</label><input name="name" required></div>
         <div><label>Username</label><input name="username" required></div>
@@ -216,14 +221,16 @@ async function renderUsers() {
     </tbody></table></div>`;
   $('#uf').onsubmit = async (e) => {
     e.preventDefault();
-    try { await api('/users', 'POST', Object.fromEntries(new FormData(e.target))); toast('User created'); render(); }
-    catch (err) { $('#ue').textContent = err.message; }
+    const fd = Object.fromEntries(new FormData(e.target));
+    const { error } = await sb.rpc('create_staff_user', { p_username: fd.username, p_name: fd.name, p_password: fd.password, p_role: fd.role });
+    if (error) return ($('#ue').textContent = error.message);
+    toast('User created'); await loadMe(); render();
   };
   app.querySelectorAll('[data-act]').forEach((b) => (b.onclick = async () => {
     try {
-      if (b.dataset.act === 'toggle') await api('/users/' + b.dataset.id, 'PATCH', { active: b.dataset.on !== '1' });
-      else { const pw = prompt('New password (min 6 chars):'); if (!pw) return; await api('/users/' + b.dataset.id, 'PATCH', { password: pw }); }
-      toast('Saved'); render();
+      if (b.dataset.act === 'toggle') must(await sb.rpc('set_staff_active', { p_id: b.dataset.id, p_active: b.dataset.on !== '1' }));
+      else { const pw = prompt('New password (min 6 chars):'); if (!pw) return; must(await sb.rpc('reset_staff_password', { p_id: b.dataset.id, p_password: pw })); }
+      toast('Saved'); await loadMe(); render();
     } catch (e) { toast(e.message); }
   }));
 }
