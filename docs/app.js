@@ -126,7 +126,7 @@ async function renderCalendar() {
 }
 
 function bookDialog(date, n) {
-  const saved = (() => { try { return localStorage.getItem('jl_name') || ''; } catch { return ''; } })();
+  const saved = me ? '' : (() => { try { return localStorage.getItem('jl_name') || ''; } catch { return ''; } })();
   openModal(`<h3>Book ${fmtDate(date)} · Slot ${n}</h3>
     <form id="bf"><label>Your name</label><input name="requester_name" value="${esc(saved)}" maxlength="80" required>
     <label>What do you need posted?</label>
