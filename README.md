@@ -12,7 +12,7 @@ Static site (GitHub Pages) + Supabase (Postgres, Auth, row level security). No s
 - `/admin/` – backend login. Work board (set status, assign), and for admins a Users tab to create backend users.
 
 ## One-time Supabase setup
-1. Supabase dashboard → **SQL Editor** → run [`supabase/setup.sql`](supabase/setup.sql).
+1. Supabase dashboard → **SQL Editor** → run [`supabase/setup.sql`](supabase/setup.sql), then [`supabase/user_management.sql`](supabase/user_management.sql).
 2. Edit the password in [`supabase/seed_admin.sql`](supabase/seed_admin.sql) (don't commit it) and run it to create the first admin (`admin`).
 3. Dashboard → Authentication → Providers → Email: turn **off** "Confirm email" and **off** public sign-ups ("Allow new users to sign up").
 

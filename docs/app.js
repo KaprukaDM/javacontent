@@ -216,8 +216,9 @@ async function renderUsers() {
     </form>
     <div class="tablewrap"><table><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Status</th><th></th></tr></thead><tbody>
     ${users.map((u) => `<tr><td>${esc(u.name)}</td><td>${esc(u.username)}</td><td>${esc(u.role)}</td><td>${u.active ? 'active' : 'disabled'}</td>
-      <td>${u.id === me.id ? '' : `<button class="btn sm alt" data-act="toggle" data-id="${u.id}" data-on="${u.active ? 1 : 0}">${u.active ? 'Disable' : 'Enable'}</button>
-      <button class="btn sm alt" data-act="pw" data-id="${u.id}">Reset password</button>`}</td></tr>`).join('')}
+      <td><button class="btn sm alt" data-act="edit" data-id="${u.id}">Edit</button>${u.id === me.id ? '' : `
+      <button class="btn sm alt" data-act="toggle" data-id="${u.id}" data-on="${u.active ? 1 : 0}">${u.active ? 'Disable' : 'Enable'}</button>
+      <button class="btn sm danger" data-act="del" data-id="${u.id}">Delete</button>`}</td></tr>`).join('')}
     </tbody></table></div>`;
   $('#uf').onsubmit = async (e) => {
     e.preventDefault();
@@ -229,7 +230,12 @@ async function renderUsers() {
   app.querySelectorAll('[data-act]').forEach((b) => (b.onclick = async () => {
     try {
       if (b.dataset.act === 'toggle') must(await sb.rpc('set_staff_active', { p_id: b.dataset.id, p_active: b.dataset.on !== '1' }));
-      else { const pw = prompt('New password (min 6 chars):'); if (!pw) return; must(await sb.rpc('reset_staff_password', { p_id: b.dataset.id, p_password: pw })); }
+      else if (b.dataset.act === 'edit') return editUserDialog(users.find((u) => u.id === b.dataset.id));
+      else {
+        const u = users.find((x) => x.id === b.dataset.id);
+        if (!confirm(`Delete ${u.name} (${u.username})? Their assigned bookings become unassigned. This cannot be undone.`)) return;
+        must(await sb.rpc('delete_staff_user', { p_id: u.id }));
+      }
       toast('Saved'); await loadMe(); render();
     } catch (e) { toast(e.message); }
   }));
