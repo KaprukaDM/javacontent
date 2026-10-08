@@ -205,10 +205,9 @@ async function renderCalendar() {
 }
 
 function bookDialog(date, n) {
-  const saved = isBranch() ? (() => { try { return localStorage.getItem('jl_name') || ''; } catch { return ''; } })() : '';
   openModal(`<h3>Book ${fmtDate(date)} · Slot ${n}</h3>
-    <form id="bf"><label>Your name</label><input name="requester_name" value="${esc(saved)}" maxlength="80" required>
-    ${isBranch() ? `<p style="margin:12px 0 0">Branch: <b>${esc(me.branch)}</b></p>` : `<label>Branch</label><select name="branch" required>${branchOptions('')}</select>`}
+    <form id="bf">
+    ${isBranch() ? `<p style="margin:0">Branch: <b>${esc(me.branch)}</b></p>` : `<label>Branch</label><select name="branch" required>${branchOptions('')}</select>`}
     <label>What do you need posted?</label>
     <textarea name="requirement" maxlength="4000" placeholder="Describe the post requirement…" required></textarea>
     <div class="err" id="be"></div>
@@ -219,13 +218,12 @@ function bookDialog(date, n) {
     const fd = new FormData(e.target);
     const { error } = await sb.from('bookings').insert({
       slot_date: date, slot_no: n,
-      requester_name: String(fd.get('requester_name')).trim(), branch: isBranch() ? me.branch : fd.get('branch'), requirement: String(fd.get('requirement')).trim() });
+      requester_name: isBranch() ? me.branch : me.name, branch: isBranch() ? me.branch : fd.get('branch'), requirement: String(fd.get('requirement')).trim() });
     if (error) {
-      $('#be').textContent = error.code === '23505' ? 'That slot was just taken' : 'Could not book this slot. Check your name and requirement.';
+      $('#be').textContent = error.code === '23505' ? 'That slot was just taken' : 'Could not book this slot. Check the branch and requirement.';
       if (error.code === '23505') render();
       return;
     }
-    try { if (isBranch()) localStorage.setItem('jl_name', String(fd.get('requester_name')).trim()); } catch {}
     closeModal(); toast('Slot booked'); render();
   };
 }
@@ -234,7 +232,7 @@ async function detailDialog(id) {
   const b = must(await sb.from('bookings').select('*').eq('id', id).single());
   const history = must(await sb.from('status_history').select('*').eq('booking_id', id).order('id'));
   openModal(`<h3>${fmtDate(b.slot_date)} · Slot ${b.slot_no}</h3>
-    <p>${chip(b.status)} &nbsp; for <b>${esc(b.requester_name)}</b>${b.branch ? ` · ${esc(b.branch)}` : ''} · assigned: <b>${esc(b.assigned_name || 'nobody yet')}</b></p>
+    <p>${chip(b.status)} &nbsp; for <b>${esc(b.branch && b.requester_name === b.branch ? b.branch : b.requester_name)}</b>${b.branch && b.requester_name !== b.branch ? ` · ${esc(b.branch)}` : ''} · assigned: <b>${esc(b.assigned_name || 'nobody yet')}</b></p>
     <div class="req-text">${esc(b.requirement)}</div>
     ${isStaff() ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
       <div><label>Status</label><select id="d-status">${STATUSES.map((s) => `<option ${s === b.status ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
@@ -272,7 +270,7 @@ async function renderBoard() {
   const keepScroll = window.scrollY;
   const rows = bookings.map((b) => `<tr>
     <td><b>${fmtDate(b.slot_date)}</b><br>Slot ${b.slot_no}</td>
-    <td>${esc(b.requester_name)}${b.branch ? `<br><small>${esc(b.branch)}</small>` : ''}</td>
+    <td>${esc(b.requester_name)}${b.branch && b.branch !== b.requester_name ? `<br><small>${esc(b.branch)}</small>` : ''}</td>
     <td class="req">${esc(b.requirement)}</td>
     <td><select data-id="${b.id}" data-f="status">${STATUSES.map((s) => `<option ${s === b.status ? 'selected' : ''}>${s}</option>`).join('')}</select></td>
     <td><select data-id="${b.id}" data-f="assigned_to"><option value="">— unassigned —</option>${staffList.map((u) => `<option value="${u.id}" ${u.id === b.assigned_to ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select></td>
