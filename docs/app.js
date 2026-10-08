@@ -24,6 +24,11 @@ const pad = (n) => String(n).padStart(2, '0');
 const MIN_DATE = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' });
 const MAX_DATE = (() => { const [y, m, d] = MIN_DATE.split('-').map(Number); return `${y + 5}-${pad(m)}-${pad(d)}`; })();
 
+// Public bookings open LEAD_DAYS after today (time to prepare); signed-in staff can book from today.
+const LEAD_DAYS = 3;
+const addDays = (d, n) => { const t = new Date(d + 'T00:00:00Z'); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); };
+const BOOK_FROM = addDays(MIN_DATE, LEAD_DAYS);
+
 function toast(msg) {
   const t = $('#toast'); t.textContent = msg; t.hidden = false;
   clearTimeout(toast.t); toast.t = setTimeout(() => (t.hidden = true), 2800);
@@ -102,16 +107,16 @@ async function renderCalendar() {
   for (let i = 0; i < first.getDay(); i++) cells += '<div class="day pad"></div>';
   for (let d = 1; d <= days; d++) {
     const date = `${month}-${pad(d)}`;
-    const past = date < MIN_DATE, out = date > MAX_DATE;
+    const past = date < MIN_DATE, out = date > MAX_DATE, closed = !me && !past && date < BOOK_FROM;
     const slots = [1, 2].map((n) => {
       const b = by[date + '|' + n];
       if (b) return `<button class="slot s-${b.status}" data-id="${b.id}" title="${esc(b.requester_name)} · ${b.status}">S${n} · ${esc(b.requester_name)}</button>`;
-      return `<button class="slot s-free" data-date="${date}" data-n="${n}" ${past || out ? 'disabled' : ''}>S${n} · Free</button>`;
+      return `<button class="slot s-free" data-date="${date}" data-n="${n}" ${past || out || closed ? 'disabled' : ''}>S${n} · ${closed ? 'Closed' : 'Free'}</button>`;
     }).join('');
     cells += `<div class="day ${past ? 'past' : ''} ${date === MIN_DATE ? 'today' : ''}"><span class="n">${d}</span>${out ? '' : slots}</div>`;
   }
   app.innerHTML = `
-    ${ADMIN ? '' : '<div class="hello"><b>☕ Book your content slot</b>Pick a free slot, tell us what you need posted, and we’ll get brewing.</div>'}
+    ${ADMIN ? '' : '<div class="hello"><b>☕ Book your content slot</b>Pick a free slot, tell us what you need posted, and we’ll get brewing. Bookings open from ${fmtDate(BOOK_FROM)} so we have time to prepare.</div>'}
     <div class="bar">
       <button class="btn alt" id="prev">&larr;</button>
       <h2>${first.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</h2>

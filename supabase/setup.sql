@@ -110,6 +110,7 @@ create policy bookings_insert on public.bookings for insert to anon, authenticat
     and branch is not null
     and slot_date >= (now() at time zone 'Asia/Colombo')::date
     and slot_date <= (now() at time zone 'Asia/Colombo')::date + interval '5 years'
+    and (slot_date >= (now() at time zone 'Asia/Colombo')::date + 3 or public.is_staff())
   );
 
 drop policy if exists bookings_update on public.bookings;
