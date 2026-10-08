@@ -156,9 +156,21 @@ async function detailDialog(id) {
   openModal(`<h3>${fmtDate(b.slot_date)} · Slot ${b.slot_no}</h3>
     <p>${chip(b.status)} &nbsp; for <b>${esc(b.requester_name)}</b> · assigned: <b>${esc(b.assigned_name || 'nobody yet')}</b></p>
     <div class="req-text">${esc(b.requirement)}</div>
+    ${me ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+      <div><label>Status</label><select id="d-status">${STATUSES.map((s) => `<option ${s === b.status ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
+      <div><label>Assigned to</label><select id="d-assign"><option value="">— unassigned —</option>${staffList.map((u) => `<option value="${u.id}" ${u.id === b.assigned_to ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select></div>
+    </div>` : ''}
     <b>History</b><ul class="hist">${history.map((h) => `<li>${chip(h.status)} ${esc(h.changed_by_name)} · ${esc(fmtTime(h.changed_at))}</li>`).join('')}</ul>
     <div class="row">${me ? '<button class="btn danger" id="del">Cancel booking</button>' : ''}<button class="btn alt" id="cx">Close</button></div>`);
   $('#cx').onclick = closeModal;
+  if (me) {
+    const save = async (patch) => {
+      try { must(await sb.from('bookings').update(patch).eq('id', id)); toast('Updated'); closeModal(); render(); }
+      catch (e) { toast(e.message); }
+    };
+    $('#d-status').onchange = (e) => save({ status: e.target.value });
+    $('#d-assign').onchange = (e) => save({ assigned_to: e.target.value || null });
+  }
   if (me) $('#del').onclick = async () => {
     if (!confirm('Cancel this booking and free the slot?')) return;
     try { must(await sb.from('bookings').delete().eq('id', id)); closeModal(); toast('Booking cancelled'); render(); } catch (e) { toast(e.message); }
