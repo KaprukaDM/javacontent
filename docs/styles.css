@@ -171,3 +171,10 @@ nav a.navlink.on { background: var(--caramel); border-color: var(--caramel); col
 .bchecks { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 2px 10px; }
 label.chk { display: flex; align-items: center; gap: 6px; margin: 2px 0; font-weight: 600; font-size: 14px; color: var(--espresso); }
 label.chk input { width: auto; }
+
+/* second row: backend tabs sit below the header */
+.top.has-sub { border-bottom: 0; }
+.subnav { display: flex; gap: 6px; flex-wrap: wrap; padding: 10px 24px; background: #3a2316; border-bottom: 4px solid var(--caramel); }
+.subnav button { background: transparent; color: var(--latte); border: 0; padding: 8px 16px; font-weight: 700; cursor: pointer; border-radius: 99px; }
+.subnav button:hover { background: rgba(249, 246, 240, .12); color: var(--foam); }
+.subnav button.on { background: var(--caramel); color: var(--espresso); }

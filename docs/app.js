@@ -1,5 +1,5 @@
 const $ = (s) => document.querySelector(s);
-const app = $('#app'), nav = $('#nav'), who = $('#who');
+const app = $('#app'), nav = $('#nav'), who = $('#who'), subnav = $('#subnav');
 const STATUSES = ['received', 'working', 'approval', 'rejected', 'completed'];
 const ADMIN = !!window.JL_ADMIN;
 const sb = supabase.createClient(JL_CONFIG.url, JL_CONFIG.key);
@@ -130,6 +130,7 @@ function renderChrome() {
   document.body.classList.toggle('login-screen', !me);
   nav.hidden = who.hidden = false;
   nav.innerHTML = '';
+  subnav.innerHTML = '';
   if (isStaff()) {
     // two top-level destinations for backend users: the booking front end and the backend
     nav.innerHTML = `<a class="navlink ${ADMIN ? '' : 'on'}" href="${ADMIN ? '../' : './'}">Front end</a>
@@ -138,9 +139,11 @@ function renderChrome() {
   if (ADMIN && me) {
     const tabs = [['calendar', 'Calendar'], ['board', 'Work board']];
     if (me.role === 'admin') tabs.push(['users', 'Users']);
-    nav.innerHTML += `<span class="navsep"></span>` + tabs.map(([k, l]) => `<button data-v="${k}" class="${view === k ? 'on' : ''}">${l}</button>`).join('');
-    nav.querySelectorAll('button').forEach((b) => (b.onclick = () => { view = b.dataset.v; renderChrome(); render(); }));
+    subnav.innerHTML = tabs.map(([k, l]) => `<button data-v="${k}" class="${view === k ? 'on' : ''}">${l}</button>`).join('');
+    subnav.querySelectorAll('button').forEach((b) => (b.onclick = () => { view = b.dataset.v; renderChrome(); render(); }));
   }
+  subnav.hidden = !subnav.innerHTML;
+  document.querySelector('.top').classList.toggle('has-sub', !subnav.hidden);
   who.innerHTML = me
     ? `${esc(isBranch() ? me.branch : me.name)} <span class="chip">${esc(me.role)}</span><button class="btn sm alt" id="out">Sign out</button>` : '';
   if (me) $('#out').onclick = signOut;
